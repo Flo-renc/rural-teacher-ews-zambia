@@ -1,7 +1,7 @@
 #  Rural Teacher Attrition Early Warning System (EWS)
 
 > **BSc Software Engineering Capstone — ML Track**
-> African Leadership University | Florence Kabeya & Elvira Khwatenge
+> African Leadership University | Florence Kabeya 
 
 ---
 
@@ -249,9 +249,11 @@ See `data/provenance_log.md` for full provenance details.
 
 ---
 
-## Authors
+## Author
 
 **Florence Kabeya** — f.kabeya@alustudent.com
+
+## Supervisor
 **Elvira Khwatenge** — ekhwatenge@alueducation.com
 
 African Leadership University | BSc Software Engineering | Capstone 2026
