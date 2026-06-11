@@ -1,6 +1,6 @@
 -- ============================================================
 -- Teacher Attrition EWS — MySQL Schema
--- Authors: Florence Kabeya & Elvira Khwatenge | ALU
+-- Authors: Florence Kabeya  | ALU
 -- Run this script to initialise the database manually.
 -- SQLAlchemy ORM will also auto-create these via create_tables().
 -- ============================================================

@@ -1,6 +1,6 @@
 """
 Teacher Attrition Early Warning System — Streamlit Dashboard
-Authors: Florence Kabeya & Elvira Khwatenge | African Leadership University
+Authors: Florence Kabeya  | African Leadership University
 
 Run with:  streamlit run streamlit_app/dashboard.py
 """
@@ -18,7 +18,7 @@ API_BASE = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
 
 st.set_page_config(
     page_title="Teacher Attrition EWS",
-    page_icon="🏫",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -37,11 +37,11 @@ with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Coat_of_arms_of_Zambia.svg/120px-Coat_of_arms_of_Zambia.svg.png", width=80)
     st.title("EWS Navigation")
     page = st.radio("Go to", [
-        "🏠 Dashboard Overview",
-        "🔍 Single School Prediction",
-        "📦 Batch Prediction",
-        "📤 Upload Bulletin Data",
-        "ℹ️ About",
+        " Dashboard Overview",
+        " Single School Prediction",
+        " Batch Prediction",
+        " Upload Bulletin Data",
+        "ℹ About",
     ])
     st.divider()
     st.caption("Teacher Attrition EWS v1.0")
@@ -98,8 +98,8 @@ def shap_bar_chart(shap_entries: list):
 
 
 # ── Page: Dashboard Overview ──────────────────────────────────────────────────
-if page == "🏠 Dashboard Overview":
-    st.title("🏫 Teacher Attrition Early Warning System")
+if page == " Dashboard Overview":
+    st.title(" Teacher Attrition Early Warning System")
     st.caption("Chongwe District, Lusaka Province — Decision Support Prototype")
     st.divider()
 
@@ -129,8 +129,8 @@ if page == "🏠 Dashboard Overview":
 
 
 # ── Page: Single School Prediction ───────────────────────────────────────────
-elif page == "🔍 Single School Prediction":
-    st.title("🔍 Single School Risk Prediction")
+elif page == " Single School Prediction":
+    st.title(" Single School Risk Prediction")
     st.caption("Enter school-level feature values to generate an attrition risk score.")
 
     with st.form("predict_form"):
@@ -186,8 +186,8 @@ elif page == "🔍 Single School Prediction":
 
 
 # ── Page: Batch Prediction ────────────────────────────────────────────────────
-elif page == "📦 Batch Prediction":
-    st.title("📦 Batch Risk Prediction")
+elif page == " Batch Prediction":
+    st.title(" Batch Risk Prediction")
     st.caption("Paste school data or use the sample below. Up to 200 records.")
 
     sample = [
@@ -241,8 +241,8 @@ elif page == "📦 Batch Prediction":
 
 
 # ── Page: Upload Bulletin Data ────────────────────────────────────────────────
-elif page == "📤 Upload Bulletin Data":
-    st.title("📤 Upload MoE Bulletin CSV")
+elif page == " Upload Bulletin Data":
+    st.title(" Upload MoE Bulletin CSV")
     st.caption("Upload a CSV to refresh risk predictions for all schools in the dataset.")
 
     st.markdown("""
@@ -272,7 +272,7 @@ elif page == "📤 Upload Bulletin Data":
 
 
 # ── Page: About ───────────────────────────────────────────────────────────────
-elif page == "ℹ️ About":
+elif page == " About":
     st.title("About This System")
     st.markdown("""
     ### Teacher Attrition Early Warning System (EWS)

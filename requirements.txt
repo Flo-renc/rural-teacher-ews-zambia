@@ -10,6 +10,7 @@ cryptography==42.0.7          # pymysql TLS support
 
 # ── ML core ───────────────────────────────────────────────────
 scikit-learn==1.4.2
+scipy==1.11.4
 xgboost==2.0.3
 imbalanced-learn==0.12.2
 shap==0.45.0
