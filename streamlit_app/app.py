@@ -2,7 +2,6 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Teacher Attrition EWS | Zambia MoE",
-    page_icon="assets/favicon.ico",
     layout="wide",
     initial_sidebar_state="expanded",
 )
