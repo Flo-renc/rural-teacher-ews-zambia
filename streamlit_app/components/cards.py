@@ -1,28 +1,36 @@
 import streamlit as st
 
+import streamlit as st
+
 def metric_card(label, value, sub=None, accent=None):
     """
     accent: None | 'high' | 'medium' | 'low'
     """
+
     accent_colors = {
-        "high":   ("#DC2626", "#FEE2E2"),
+        "high": ("#DC2626", "#FEE2E2"),
         "medium": ("#92400E", "#FEF3C7"),
-        "low":    ("#2D6A4F", "#F0FAF4"),
-    # Green
+        "low": ("#2D6A4F", "#F0FAF4"),
     }
 
     border_color = "#CBD5E1"
     bg_color = "#FFFFFF"
 
-    if accent and accent in accent_colors:
-        text_c, bg_color = accent_colors[accent]
-        border_color = text_c
+    if accent in accent_colors:
+        border_color, bg_color = accent_colors[accent]
+
     sub_html = f'<div class="ews-card-sub">{sub}</div>' if sub else ""
-    st.markdown(f""" div class="ews-card" style="background:{bg_color}; border-color:{border_color};">
-        <div class="ews-card-label">{label}</div>
-        <div class="ews-card-value">{value}</div>
-        {sub_html}
-        </div>""", unsafe_allow_html=True)
+
+    st.markdown(
+        f"""
+        <div class="ews-card" style="background:{bg_color}; border-color:{border_color};">
+            <div class="ews-card-label">{label}</div>
+            <div class="ews-card-value">{value}</div>
+            {sub_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 def section_header(title, description=None):
     desc_html = f'<p>{description}</p>' if description else ""
     st.markdown(f"""
