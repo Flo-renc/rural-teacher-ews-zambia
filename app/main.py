@@ -1,6 +1,6 @@
 """
 Teacher Attrition Early Warning System — FastAPI Backend
-Authors: Florence Kabeya & Elvira Khwatenge | African Leadership University
+Authors: Florence Kabeya| African Leadership University
 """
 
 from fastapi import FastAPI
@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
  
-from app.routers import predictions, schools, data_upload, health
+from app.routers import predictions, schools, data_upload, health, auth
 from app.database.connection import create_tables
  
 logging.basicConfig(level=logging.INFO)
@@ -35,8 +35,8 @@ app = FastAPI(
     ),
     version="1.0.0",
     contact={
-        "name": "Florence Kabeya & Elvira Khwatenge",
-        "email": "florence.kabeya@alustudent.com",
+        "name": "Florence Kabeya",
+        "email": "f.kabeya@alustudent.com",
     },
     license_info={"name": "MIT"},
     lifespan=lifespan,
@@ -53,6 +53,7 @@ app.add_middleware(
  
 # Routers
 app.include_router(health.router, tags=["Health"])
+app.include_router(auth.router, prefix="/api/v1", tags=["Authentication"])
 app.include_router(predictions.router, prefix="/api/v1", tags=["Predictions"])
 app.include_router(schools.router, prefix="/api/v1", tags=["Schools"])
 app.include_router(data_upload.router, prefix="/api/v1", tags=["Data Upload"])

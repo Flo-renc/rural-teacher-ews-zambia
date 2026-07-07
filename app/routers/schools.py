@@ -1,76 +1,118 @@
 """
-Schools router — CRUD for school records.
+Schools endpoints:
+  GET    /api/v1/schools                    — list with filters
+  POST   /api/v1/schools                    — create
+  GET    /api/v1/schools/{school_code}      — detail
+  PUT    /api/v1/schools/{school_code}      — update
+  DELETE /api/v1/schools/{school_code}      — delete
+  GET    /api/v1/schools/{school_code}/trend — teacher trend for one school
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
-from app.schemas.schemas import SchoolCreate, SchoolResponse
-from app.models.db_models import School
-
-router = APIRouter()
-
-
-@router.get(
-    "/schools",
-    response_model=list[SchoolResponse],
-    summary="List all schools",
+from app.models.db_models import School, TeacherRecord
+from app.schemas.schemas import (
+    SchoolCreate, SchoolUpdate, SchoolOut, SchoolListOut,
+    SchoolTrendOut, TeacherTrendPoint,
 )
+from app.core.security import get_current_user, require_role
+
+router = APIRouter(prefix="/api/v1/schools", tags=["Schools"])
+
+
+@router.get("", response_model=SchoolListOut, summary="List schools with optional filters")
 def list_schools(
-    province : str | None = None,
-    district : str | None = None,
-    is_rural : bool | None = None,
-    limit    : int = 100,
-    db       : Session = Depends(get_db),
+    province:    Optional[str] = Query(None),
+    district:    Optional[str] = Query(None),
+    school_type: Optional[str] = Query(None),
+    is_rural:    Optional[int] = Query(None),
+    skip: int = Query(0,   ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
 ):
     q = db.query(School)
-    if province:
-        q = q.filter(School.province == province)
-    if district:
-        q = q.filter(School.district == district)
-    if is_rural is not None:
-        q = q.filter(School.is_rural == is_rural)
-    return q.limit(limit).all()
+    if province:    q = q.filter(School.province    == province)
+    if district:    q = q.filter(School.district    == district)
+    if school_type: q = q.filter(School.school_type == school_type)
+    if is_rural is not None: q = q.filter(School.is_rural == is_rural)
+
+    total   = q.count()
+    schools = q.order_by(School.province, School.name).offset(skip).limit(limit).all()
+    return SchoolListOut(total=total, schools=schools)
 
 
-@router.get(
-    "/schools/{school_code}",
-    response_model=SchoolResponse,
-    summary="Get a single school by code",
-)
-def get_school(school_code: str, db: Session = Depends(get_db)):
-    school = db.query(School).filter(School.school_code == school_code).first()
-    if not school:
-        raise HTTPException(status_code=404, detail=f"School '{school_code}' not found.")
+@router.post("", response_model=SchoolOut, status_code=201,
+             summary="Create a new school record",
+             dependencies=[Depends(require_role("data_admin"))])
+def create_school(payload: SchoolCreate, db: Session = Depends(get_db)):
+    if db.query(School).filter(School.school_code == payload.school_code).first():
+        raise HTTPException(409, detail=f"School '{payload.school_code}' already exists")
+    school = School(**payload.model_dump())
+    db.add(school)
+    db.commit()
+    db.refresh(school)
     return school
 
 
-@router.post(
-    "/schools",
-    response_model=SchoolResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Register a new school",
-)
-def create_school(school: SchoolCreate, db: Session = Depends(get_db)):
-    existing = db.query(School).filter(School.school_code == school.school_code).first()
-    if existing:
-        raise HTTPException(status_code=409, detail="School code already exists.")
-    db_school = School(**school.model_dump())
-    db.add(db_school)
+@router.get("/{school_code}", response_model=SchoolOut, summary="Get a single school by code")
+def get_school(school_code: str, db: Session = Depends(get_db)):
+    school = db.query(School).filter(School.school_code == school_code).first()
+    if not school:
+        raise HTTPException(404, detail=f"School '{school_code}' not found")
+    return school
+
+
+@router.put("/{school_code}", response_model=SchoolOut, summary="Update school details",
+            dependencies=[Depends(require_role("data_admin"))])
+def update_school(school_code: str, payload: SchoolUpdate, db: Session = Depends(get_db)):
+    school = db.query(School).filter(School.school_code == school_code).first()
+    if not school:
+        raise HTTPException(404, detail=f"School '{school_code}' not found")
+    for field, value in payload.model_dump(exclude_none=True).items():
+        setattr(school, field, value)
     db.commit()
-    db.refresh(db_school)
-    return db_school
+    db.refresh(school)
+    return school
 
 
-@router.delete(
-    "/schools/{school_code}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete a school record",
-)
+@router.delete("/{school_code}", status_code=204, summary="Delete a school",
+               dependencies=[Depends(require_role("data_admin"))])
 def delete_school(school_code: str, db: Session = Depends(get_db)):
     school = db.query(School).filter(School.school_code == school_code).first()
     if not school:
-        raise HTTPException(status_code=404, detail="School not found.")
+        raise HTTPException(404, detail=f"School '{school_code}' not found")
     db.delete(school)
     db.commit()
+
+
+@router.get("/{school_code}/trend", response_model=SchoolTrendOut,
+            summary="Historical teacher trend for a specific school")
+def school_trend(school_code: str, db: Session = Depends(get_db)):
+    school = db.query(School).filter(School.school_code == school_code).first()
+    if not school:
+        raise HTTPException(404, detail=f"School '{school_code}' not found")
+
+    records = (
+        db.query(TeacherRecord)
+        .filter(TeacherRecord.school_code == school_code)
+        .order_by(TeacherRecord.year)
+        .all()
+    )
+    return SchoolTrendOut(
+        school_code = school.school_code,
+        school_name = school.name,
+        province    = school.province,
+        district    = school.district,
+        trend       = [
+            TeacherTrendPoint(
+                year          = r.year,
+                teacher_count = r.teacher_count,
+                ptr           = r.ptr,
+                attrition_est = r.attrition_est,
+            )
+            for r in records
+        ],
+    )

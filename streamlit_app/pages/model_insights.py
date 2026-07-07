@@ -169,3 +169,5 @@ def render():
             )
 
     page_footer()
+    
+render()

@@ -1,99 +1,107 @@
 """
-ORM models — mirrors the MySQL ERD from the proposal (Chapter 3.7.3).
-Tables: schools, teacher_records, risk_predictions, ml_models, users
+SQLAlchemy ORM models — mirrors the MySQL schema exactly.
+Importing this module registers all models with Base.metadata.
 """
 
+from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, Boolean,
-    DateTime, Text, ForeignKey, Enum
+    Column, String, Integer, Float, Text, DateTime,
+    Enum as SAEnum, ForeignKey, SmallInteger, Index,
 )
 from sqlalchemy.orm import relationship
-from datetime import datetime, timezone
-import enum
-
 from app.database.connection import Base
-
-
-class RiskLabel(str, enum.Enum):
-    HIGH_RISK = "high_risk"
-    NOT_AT_RISK = "not_at_risk"
-
-
-class UserRole(str, enum.Enum):
-    DISTRICT_OFFICER = "district_officer"
-    DATA_ADMIN = "data_admin"
-    VIEWER = "viewer"
 
 
 class School(Base):
     __tablename__ = "schools"
 
-    school_code   = Column(String(20), primary_key=True, index=True)
-    name          = Column(String(200), nullable=False)
-    district      = Column(String(100), nullable=False, index=True)
-    province      = Column(String(100), nullable=False, index=True)
-    school_type   = Column(String(50))          # GRZ, Community, Private, Grant-Aided
-    is_rural      = Column(Boolean, default=True)
-    created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    school_code = Column(String(20),  primary_key=True, nullable=False)
+    name        = Column(String(200), nullable=False)
+    district    = Column(String(100), nullable=False)
+    province    = Column(String(100), nullable=False)
+    school_type = Column(String(50))
+    is_rural    = Column(SmallInteger, default=1)
+    created_at  = Column(DateTime, default=datetime.utcnow)
 
-    teacher_records   = relationship("TeacherRecord",   back_populates="school")
-    risk_predictions  = relationship("RiskPrediction",  back_populates="school")
+    # Relationships
+    teacher_records = relationship("TeacherRecord",  back_populates="school", cascade="all, delete")
+    predictions     = relationship("RiskPrediction", back_populates="school", cascade="all, delete")
+
+    __table_args__ = (
+        Index("idx_district", "district"),
+        Index("idx_province", "province"),
+    )
 
 
 class TeacherRecord(Base):
     __tablename__ = "teacher_records"
 
-    record_id       = Column(Integer, primary_key=True, autoincrement=True)
-    school_code     = Column(String(20), ForeignKey("schools.school_code"), nullable=False, index=True)
-    year            = Column(Integer, nullable=False)
+    record_id       = Column(Integer,     primary_key=True, autoincrement=True)
+    school_code     = Column(String(20),  ForeignKey("schools.school_code", ondelete="CASCADE"), nullable=False)
+    year            = Column(Integer,     nullable=False)
     teacher_count   = Column(Integer)
     qualified_count = Column(Integer)
-    ptr             = Column(Float)
+    ptr             = Column(Float)          # pupil-teacher ratio
     enrolment       = Column(Integer)
-    attrition_est   = Column(Integer, nullable=True)
-    created_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    attrition_est   = Column(Integer)
+    created_at      = Column(DateTime, default=datetime.utcnow)
 
     school = relationship("School", back_populates="teacher_records")
+
+    __table_args__ = (
+        Index("idx_school_year", "school_code", "year"),
+    )
 
 
 class MLModel(Base):
     __tablename__ = "ml_models"
 
-    model_version  = Column(String(50), primary_key=True)
-    algorithm      = Column(String(100), nullable=False)
-    f1_score       = Column(Float)
-    recall_score   = Column(Float)
-    auc_score      = Column(Float)
-    trained_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    artefact_path  = Column(String(500))
-    is_active      = Column(Boolean, default=False)
-    notes          = Column(Text, nullable=True)
+    model_version = Column(String(50),  primary_key=True, nullable=False)
+    algorithm     = Column(String(100), nullable=False)
+    f1_score      = Column(Float)
+    recall_score  = Column(Float)
+    auc_score     = Column(Float)
+    trained_at    = Column(DateTime, default=datetime.utcnow)
+    artefact_path = Column(String(500))
+    is_active     = Column(SmallInteger, default=0)
+    notes         = Column(Text)
 
-    predictions = relationship("RiskPrediction", back_populates="model")
+    predictions = relationship("RiskPrediction", back_populates="model", cascade="all, delete")
 
 
 class RiskPrediction(Base):
     __tablename__ = "risk_predictions"
 
-    prediction_id  = Column(Integer, primary_key=True, autoincrement=True)
-    school_code    = Column(String(20), ForeignKey("schools.school_code"), nullable=False, index=True)
-    model_version  = Column(String(50), ForeignKey("ml_models.model_version"), nullable=False)
-    risk_score     = Column(Float, nullable=False)       # probability 0–1
-    risk_label     = Column(Enum(RiskLabel), nullable=False)
-    shap_json      = Column(Text, nullable=True)         # JSON-serialised SHAP values
-    confidence_pct = Column(Float, nullable=True)
-    predicted_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    prediction_id  = Column(Integer,    primary_key=True, autoincrement=True)
+    school_code    = Column(String(20), ForeignKey("schools.school_code",    ondelete="CASCADE"), nullable=False)
+    model_version  = Column(String(50), ForeignKey("ml_models.model_version", ondelete="CASCADE"), nullable=False)
+    risk_score     = Column(Float,      nullable=False)
+    risk_label     = Column(SAEnum("high_risk", "not_at_risk"), nullable=False)
+    shap_json      = Column(Text)
+    confidence_pct = Column(Float)
+    predicted_at   = Column(DateTime, default=datetime.utcnow)
 
-    school = relationship("School", back_populates="risk_predictions")
+    school = relationship("School",  back_populates="predictions")
     model  = relationship("MLModel", back_populates="predictions")
+
+    __table_args__ = (
+        Index("idx_school_predicted", "school_code", "predicted_at"),
+    )
 
 
 class User(Base):
     __tablename__ = "users"
 
-    user_id       = Column(Integer, primary_key=True, autoincrement=True)
-    username      = Column(String(100), unique=True, nullable=False, index=True)
+    user_id       = Column(Integer,     primary_key=True, autoincrement=True)
+    username      = Column(String(100), nullable=False, unique=True)
     password_hash = Column(String(255), nullable=False)
-    role          = Column(Enum(UserRole), default=UserRole.VIEWER)
-    province      = Column(String(100), nullable=True)
-    created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    role          = Column(
+        SAEnum("district_officer", "data_admin", "viewer"),
+        default="viewer",
+    )
+    province   = Column(String(100))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_username", "username"),
+    )

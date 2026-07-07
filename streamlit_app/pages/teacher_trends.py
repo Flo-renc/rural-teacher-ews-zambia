@@ -179,3 +179,4 @@ def render():
             st.plotly_chart(fig4, use_container_width=True, config={"displayModeBar": False})
 
     page_footer()
+render()

@@ -1,28 +1,37 @@
-"""Health check endpoints."""
+"""
+GET /api/v1/health  — liveness + DB + model status.
+"""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.database.connection import get_db
-from app.schemas.schemas import HealthResponse
-from app.services.ml_service import model_service
+from app.models.db_models import MLModel
+from app.schemas.schemas import HealthOut
+from app.services.ml_service import ml_service
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v1/health", tags=["Health"])
 
 
-@router.get("/health", response_model=HealthResponse, summary="API health check")
+@router.get("", response_model=HealthOut, summary="Service health check")
 def health_check(db: Session = Depends(get_db)):
-    db_ok = False
+    # DB check
     try:
         db.execute(text("SELECT 1"))
-        db_ok = True
-    except Exception:
-        pass
+        db_status = "ok"
+    except Exception as e:
+        db_status = f"error: {e}"
 
-    return HealthResponse(
-        status       = "ok" if db_ok else "degraded",
-        api_version  = "1.0.0",
-        model_loaded = model_service.is_ready(),
-        db_connected = db_ok,
+    # Active model
+    active_model = (
+        db.query(MLModel.model_version)
+        .filter(MLModel.is_active == 1)
+        .scalar()
+    )
+
+    return HealthOut(
+        status="ok",
+        database=db_status,
+        model=active_model,
     )
