@@ -7,6 +7,7 @@ import streamlit as st
 logger = logging.getLogger(__name__)
 
 API_BASE = os.getenv("EWS_API_URL", "http://localhost:8000")
+
 TIMEOUT = 10  # seconds
 
 # ── Auth token helpers ────────────────────────────────────────────────────────

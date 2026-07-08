@@ -15,7 +15,7 @@ from app.core.security import (
     create_access_token, get_current_user,
 )
 
-router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
+router = APIRouter(prefix="/auth", tags=["Auth"])
 
 ALLOWED_ROLES = {"district_officer", "data_admin", "viewer"}
 

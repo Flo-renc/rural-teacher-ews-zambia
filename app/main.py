@@ -39,7 +39,7 @@ app = FastAPI(
         "email": "f.kabeya@alustudent.com",
     },
     license_info={"name": "MIT"},
-    lifespan=lifespan,
+    lifespan=lifespan, 
 )
  
 # CORS — allow Streamlit dashboard and local dev
@@ -53,7 +53,7 @@ app.add_middleware(
  
 # Routers
 app.include_router(health.router, tags=["Health"])
-app.include_router(auth.router, prefix="/api/v1", tags=["Authentication"])
+app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
 app.include_router(predictions.router, prefix="/api/v1", tags=["Predictions"])
 app.include_router(schools.router, prefix="/api/v1", tags=["Schools"])
 app.include_router(data_upload.router, prefix="/api/v1", tags=["Data Upload"])

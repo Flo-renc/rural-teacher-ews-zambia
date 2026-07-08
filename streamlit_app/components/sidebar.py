@@ -1,5 +1,5 @@
 import streamlit as st
-
+from api_client import api
 
 NAV_ITEMS = [
     "Overview",
@@ -49,6 +49,7 @@ def render_sidebar():
         """, unsafe_allow_html=True)
 
 
+
         st.markdown(
             """
             <div style="
@@ -95,5 +96,43 @@ def render_sidebar():
         """,
         unsafe_allow_html=True)
 
+        user = api.get_current_user()
+
+        st.markdown("""
+        <div style="
+            margin-top:2rem;
+            padding:1rem 1.25rem;
+            border-top:1px solid rgba(255,255,255,0.1);
+        ">
+            <div style="
+                font-size:0.65rem;
+                font-weight:700;
+                color:#81C784;
+            ">
+            LOGGED IN AS
+            </div>
+            </div>
+        """, unsafe_allow_html=True
+        )
+
+        if user:
+            st.markdown(
+                f"""
+                <div style="
+                    padding-left: 1.25rem;
+                    color: white;
+                ">
+                <b>{user.get("username", "User")}</b><br>
+                <spam styles="color: #A5D6A7;">
+                </span><br>
+                <span style = "color: #A5D6A7;">
+                {user.get("province", "")}
+                </span>
+                </div>
+                """, unsafe_allow_html=True 
+            )
+        if st.button("Logout", use_container_width=True):
+            api.logout()
+            st.rerun()
 
     return page

@@ -1,132 +1,137 @@
 """
-Data upload router — accepts a CSV matching the MoE Bulletin format,
-computes features, runs batch prediction, and persists results.
+POST /api/v1/upload/bulletin-csv  — bulk upload MoE Bulletin data from CSV.
+
+Expected CSV columns:
+  school_code, name, district, province, school_type, is_rural,
+  year, teacher_count, qualified_count, ptr, enrolment, attrition_est
 """
 
 import io
-import pandas as pd
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+import csv
+import logging
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
-from app.schemas.schemas import UploadResponse
-from app.services.ml_service import model_service, FEATURE_COLS
-from app.models.db_models import School, TeacherRecord, RiskPrediction, RiskLabel
-from datetime import datetime, timezone
-import json
+from app.models.db_models import School, TeacherRecord
+from app.schemas.schemas import UploadResultOut
+from app.core.security import require_role
 
-router = APIRouter()
+logger = logging.getLogger(__name__)
 
-REQUIRED_COLS = {
-    "school_code", "province", "district", "level", "year",
-    "teachers", "teachers_prev", "ptr", "enrolment",
-    "enrolment_prev", "qualified_ratio", "attrition_est",
-    "schools_rural", "schools_urban",
+router = APIRouter(prefix="/api/v1/upload", tags=["Upload"])
+
+REQUIRED_COLUMNS = {
+    "school_code", "name", "district", "province",
+    "year", "teacher_count",
 }
 
 
-def _compute_features(row: pd.Series) -> dict:
-    """
-    Reproduce the feature engineering from the notebook for a single row.
-    All national-level reference values are taken from the MoE Bulletin 2022.
-    """
-    NATIONAL_PTR_MEAN = 35.1
-    NATIONAL_PTR_STD  = 9.6
-
-    teachers_prev = max(row.get("teachers_prev", row["teachers"] * 0.95), 1)
-    enrolment_prev = max(row.get("enrolment_prev", row["enrolment"] * 0.95), 1)
-    total_schools = max(row.get("schools_rural", 1) + row.get("schools_urban", 1), 1)
-
-    teacher_delta = (row["teachers"] - teachers_prev) / teachers_prev * 100
-    enrolment_growth = (row["enrolment"] - enrolment_prev) / enrolment_prev * 100
-
-    return {
-        "ptr_deviation":     round((row["ptr"] - NATIONAL_PTR_MEAN) / NATIONAL_PTR_STD, 4),
-        "qualification_gap": round(1 - row.get("qualified_ratio", 0.8), 4),
-        "rural_isolation":   round(row.get("schools_rural", 0) / total_schools, 4),
-        "teacher_delta_pct": round(teacher_delta, 2),
-        "enrolment_growth":  round(enrolment_growth, 2),
-        "pressure_gap":      round(enrolment_growth - teacher_delta, 2),
-        "attrition_rate":    round(row.get("attrition_est", 0) / max(row["teachers"], 1) * 100, 4),
-        "is_secondary":      1 if str(row.get("level", "primary")).lower() == "secondary" else 0,
-    }
-
-
 @router.post(
-    "/upload",
-    response_model=UploadResponse,
-    summary="Upload MoE Bulletin CSV and refresh predictions",
-    description=(
-        "Upload a CSV file with school-level teacher data. "
-        "The API computes features, runs predictions for all rows, "
-        "and persists results to the database. "
-        "Required columns: school_code, province, district, level, year, "
-        "teachers, teachers_prev, ptr, enrolment, enrolment_prev, "
-        "qualified_ratio, attrition_est, schools_rural, schools_urban."
-    ),
+    "/bulletin-csv",
+    response_model=UploadResultOut,
+    summary="Bulk upload MoE Bulletin CSV data",
+    dependencies=[Depends(require_role("data_admin"))],
 )
 async def upload_bulletin_csv(
-    file: UploadFile = File(..., description="CSV file — MoE Bulletin format"),
-    db: Session = Depends(get_db),
+    file: UploadFile = File(..., description="CSV file from MoE Education Statistics Bulletin"),
+    db:   Session    = Depends(get_db),
 ):
     if not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only CSV files are accepted.")
+        raise HTTPException(400, detail="Only .csv files are accepted")
 
-    contents = await file.read()
+    content = await file.read()
     try:
-        df = pd.read_csv(io.BytesIO(contents))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not parse CSV: {e}")
+        text = content.decode("utf-8-sig")  # strips BOM if present
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
 
-    missing = REQUIRED_COLS - set(df.columns)
+    reader = csv.DictReader(io.StringIO(text))
+    columns = set(reader.fieldnames or [])
+
+    missing = REQUIRED_COLUMNS - columns
     if missing:
         raise HTTPException(
-            status_code=422,
+            400,
             detail=f"CSV is missing required columns: {sorted(missing)}"
         )
 
-    # Clean numeric columns
-    numeric_cols = ["teachers", "teachers_prev", "ptr", "enrolment",
-                    "enrolment_prev", "qualified_ratio", "attrition_est",
-                    "schools_rural", "schools_urban"]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    rows_processed = rows_inserted = rows_skipped = 0
+    errors = []
 
-    df = df.dropna(subset=["school_code", "teachers", "ptr", "enrolment"])
-    df["teachers_prev"]  = df["teachers_prev"].fillna(df["teachers"] * 0.95)
-    df["enrolment_prev"] = df["enrolment_prev"].fillna(df["enrolment"] * 0.95)
-    df["attrition_est"]  = df["attrition_est"].fillna(0)
-    df["qualified_ratio"] = df["qualified_ratio"].fillna(0.80)
-
-    high_risk_count = 0
-    rows_processed = 0
-    model_version = model_service.is_ready() and "xgb_v1.0" or "model_not_loaded"
-
-    for _, row in df.iterrows():
-        features = _compute_features(row)
-        result = model_service.predict(features)
-
-        pred = RiskPrediction(
-            school_code   = str(row["school_code"]),
-            model_version = result["model_version"],
-            risk_score    = result["risk_score"],
-            risk_label    = RiskLabel(result["risk_label"]),
-            shap_json     = json.dumps(result["shap_explanation"]),
-            confidence_pct= result["confidence_pct"],
-            predicted_at  = datetime.now(timezone.utc),
-        )
-        db.add(pred)
-
-        if result["risk_label"] == "high_risk":
-            high_risk_count += 1
+    for i, row in enumerate(reader, start=2):  # start=2 because row 1 is header
         rows_processed += 1
+        school_code = row.get("school_code", "").strip()
+        if not school_code:
+            errors.append(f"Row {i}: missing school_code — skipped")
+            rows_skipped += 1
+            continue
+
+        try:
+            # Upsert school
+            school = db.query(School).filter(School.school_code == school_code).first()
+            if not school:
+                school = School(
+                    school_code = school_code,
+                    name        = row.get("name", "").strip() or school_code,
+                    district    = row.get("district", "").strip(),
+                    province    = row.get("province", "").strip(),
+                    school_type = row.get("school_type", "").strip() or None,
+                    is_rural    = int(row.get("is_rural", 1) or 1),
+                )
+                db.add(school)
+                db.flush()
+
+            # Parse year
+            year = int(row["year"])
+
+            # Skip if record already exists
+            exists = (
+                db.query(TeacherRecord)
+                .filter(
+                    TeacherRecord.school_code == school_code,
+                    TeacherRecord.year        == year,
+                )
+                .first()
+            )
+            if exists:
+                rows_skipped += 1
+                continue
+
+            def _int(val):
+                try: return int(val) if val and str(val).strip() else None
+                except: return None
+
+            def _float(val):
+                try: return float(val) if val and str(val).strip() else None
+                except: return None
+
+            record = TeacherRecord(
+                school_code     = school_code,
+                year            = year,
+                teacher_count   = _int(row.get("teacher_count")),
+                qualified_count = _int(row.get("qualified_count")),
+                ptr             = _float(row.get("ptr")),
+                enrolment       = _int(row.get("enrolment")),
+                attrition_est   = _int(row.get("attrition_est")),
+            )
+            db.add(record)
+            rows_inserted += 1
+
+        except Exception as e:
+            errors.append(f"Row {i} ({school_code}): {e}")
+            rows_skipped += 1
+            db.rollback()
+            continue
 
     db.commit()
-
-    return UploadResponse(
-        message         = f"Successfully processed {rows_processed} records.",
-        rows_processed  = rows_processed,
-        high_risk_count = high_risk_count,
-        model_version   = model_version,
+    logger.info(
+        f"CSV upload complete — processed:{rows_processed}, "
+        f"inserted:{rows_inserted}, skipped:{rows_skipped}, errors:{len(errors)}"
+    )
+    return UploadResultOut(
+        rows_processed = rows_processed,
+        rows_inserted  = rows_inserted,
+        rows_skipped   = rows_skipped,
+        errors         = errors[:50],  # cap error list to 50
     )

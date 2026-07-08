@@ -5,7 +5,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer   
+from fastapi.security import HTTPBearer   
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
@@ -17,7 +17,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
 pwd_context   = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = HTTPBearer()
 
 #Passwords
 def hash_password(plain: str) -> str:
@@ -47,9 +47,10 @@ def decode_token(token: str) -> dict:
 
 #FASTAPI Dependencies
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    credentials = Depends(oauth2_scheme),
     db:    Session = Depends(get_db),
 ) -> User:
+    token = credentials.credentials
     payload  = decode_token(token)
     username: str = payload.get("sub")
     if not username:
