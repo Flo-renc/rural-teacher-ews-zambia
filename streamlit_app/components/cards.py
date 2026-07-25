@@ -1,7 +1,5 @@
 import streamlit as st
 
-import streamlit as st
-
 def metric_card(label, value, sub=None, accent=None):
     """
     accent: None | 'high' | 'medium' | 'low'
@@ -51,7 +49,14 @@ def divider():
  
  
 def info_box(text):
-    st.markdown(f'<div class="ews-info-box">{text}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="ews-info-box">
+            {text}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
  
  
 def alert_banner(text):

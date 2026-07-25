@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
-from app.models.db_models import School, TeacherRecord
+from app.models.db_models import ProvinceData
 from app.schemas.schemas import UploadResultOut
 from app.core.security import require_role
 
@@ -22,10 +22,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/upload", tags=["Upload"])
 
 REQUIRED_COLUMNS = {
-    "school_code", "name", "district", "province",
-    "year", "teacher_count",
+    "province",
+    "year",
+    "teacher_count_primary",
+    "student_enrolment_primary",
+    "primary_schools",
+    "rural_schools",
+    "urban_schools",
 }
 
+def _int(value):
+    try:
+        return int(value) if value and str(value).strip() else None
+    except:
+        return None
+
+
+def _float(value):
+    try:
+        return float(value) if value and str(value).strip() else None
+    except:
+        return None
 
 @router.post(
     "/bulletin-csv",
@@ -56,82 +73,61 @@ async def upload_bulletin_csv(
             detail=f"CSV is missing required columns: {sorted(missing)}"
         )
 
-    rows_processed = rows_inserted = rows_skipped = 0
+    processed = 0
+    inserted = 0
+    inserted = 0
     errors = []
 
     for i, row in enumerate(reader, start=2):  # start=2 because row 1 is header
-        rows_processed += 1
-        school_code = row.get("school_code", "").strip()
-        if not school_code:
-            errors.append(f"Row {i}: missing school_code — skipped")
-            rows_skipped += 1
-            continue
+        processed += 1
 
         try:
-            # Upsert school
-            school = db.query(School).filter(School.school_code == school_code).first()
-            if not school:
-                school = School(
-                    school_code = school_code,
-                    name        = row.get("name", "").strip() or school_code,
-                    district    = row.get("district", "").strip(),
-                    province    = row.get("province", "").strip(),
-                    school_type = row.get("school_type", "").strip() or None,
-                    is_rural    = int(row.get("is_rural", 1) or 1),
-                )
-                db.add(school)
-                db.flush()
+            province = row["province"].strip()
+            year     = int(row["year"])
 
-            # Parse year
-            year = int(row["year"])
-
-            # Skip if record already exists
-            exists = (
-                db.query(TeacherRecord)
+            existing = (
+                db.query(ProvinceData)
                 .filter(
-                    TeacherRecord.school_code == school_code,
-                    TeacherRecord.year        == year,
+                    ProvinceData.province == province,
+                    ProvinceData.year     == year,
                 )
                 .first()
             )
-            if exists:
-                rows_skipped += 1
-                continue
 
-            def _int(val):
-                try: return int(val) if val and str(val).strip() else None
-                except: return None
+            if existing:
+                existing.teacher_count_primary   = _int(row.get("teacher_count_primary"))
+                existing.student_enrolment_primary = _int(row.get("student_enrolment_primary"))
+                existing.primary_schools         = _int(row.get("primary_schools"))
+                existing.rural_schools           = _int(row.get("rural_schools"))
+                existing.urban_schools           = _int(row.get("urban_schools"))
 
-            def _float(val):
-                try: return float(val) if val and str(val).strip() else None
-                except: return None
-
-            record = TeacherRecord(
-                school_code     = school_code,
-                year            = year,
-                teacher_count   = _int(row.get("teacher_count")),
-                qualified_count = _int(row.get("qualified_count")),
-                ptr             = _float(row.get("ptr")),
-                enrolment       = _int(row.get("enrolment")),
-                attrition_est   = _int(row.get("attrition_est")),
-            )
-            db.add(record)
-            rows_inserted += 1
-
+                skipped += 1
+            else:
+                record = ProvinceData(
+                    province                     = province,
+                    year                         = year,
+                    teacher_count_primary        = _int(row.get("teacher_count_primary")),
+                    student_enrolment_primary    = _int(row.get("student_enrolment_primary")),
+                    primary_schools              = _int(row.get("primary_schools")),
+                    rural_schools                = _int(row.get("rural_schools")),
+                    urban_schools                = _int(row.get("urban_schools")),
+                )
+                db.add(record)
+                inserted += 1
         except Exception as e:
-            errors.append(f"Row {i} ({school_code}): {e}")
-            rows_skipped += 1
             db.rollback()
+            errors.append(f"Row {i}: {str(e)}")
             continue
 
     db.commit()
     logger.info(
-        f"CSV upload complete — processed:{rows_processed}, "
-        f"inserted:{rows_inserted}, skipped:{rows_skipped}, errors:{len(errors)}"
+        f"Upload complete processed={processed} inserted={inserted}"
     )
+
+
     return UploadResultOut(
-        rows_processed = rows_processed,
-        rows_inserted  = rows_inserted,
-        rows_skipped   = rows_skipped,
-        errors         = errors[:50],  # cap error list to 50
+        rows_processed=processed,
+        rows_inserted=inserted,
+        rows_skipped=skipped,
+        errors=errors[:50],
     )

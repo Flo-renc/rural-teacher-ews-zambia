@@ -1,0 +1,41 @@
+{
+  "model_version": "xgb_v1.0",
+  "algorithm": "XGBoost (RandomizedSearchCV, 60 iter, 5-fold stratified CV)",
+  "level": "provincial",
+  "features": [
+    "ptr_primary_calc",
+    "teacher_growth_rate",
+    "enrolment_growth_rate",
+    "recruitment_gap",
+    "teachers_per_school",
+    "learners_per_school",
+    "rural_school_pct",
+    "ptr_trend_3yr"
+  ],
+  "feature_labels": {
+    "ptr_primary_calc": "PTR \u2014 Primary (Gr 1-7)",
+    "teacher_growth_rate": "Teacher Growth Rate (YoY %)",
+    "enrolment_growth_rate": "Enrolment Growth Rate (YoY %)",
+    "recruitment_gap": "Recruitment Gap (Enrolment\u2212Teacher Growth)",
+    "teachers_per_school": "Teachers per School",
+    "learners_per_school": "Learners per School",
+    "rural_school_pct": "Rural School %",
+    "ptr_trend_3yr": "PTR Trend (3-Year Rolling Avg)"
+  },
+  "risk_threshold": 0.65,
+  "label_strategy": "relative \u2014 top 30th percentile attrition proxy rate per year",
+  "target_variable": "attrition_proxy_rate (net teacher headcount decline / prior year count)",
+  "f1_score": 0.3704,
+  "recall_score": 0.3846,
+  "precision_score": 0.3571,
+  "auc_score": 0.4835,
+  "lopo_auc_mean": 0.7679,
+  "lopo_auc_std": 0.1693,
+  "cv_auc": 0.6766,
+  "train_years": "2009\u20132021",
+  "test_years": "2022\u20134800",
+  "missing_years": "2015, 2017, 2018 (bulletins unavailable)",
+  "provinces": 10,
+  "artefact_path": "artefacts/xgb_v1.0.joblib",
+  "notes": "Trained on MoE Education Statistics Bulletin data (2009-2025), primary level, provincial aggregate. attrition_count was inconsistently recorded across bulletin years and was therefore omitted; the target variable is derived from net teacher headcount decline (Ingersoll, 2001). School-level prediction is a planned future improvement contingent on access to EMIS school-level data from the Ministry of Education Permanent Secretary."
+}

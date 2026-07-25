@@ -1,335 +1,315 @@
 """
-Predictions endpoints:
-  POST /api/v1/predictions/run/{school_code}   — run ML inference for one school
-  POST /api/v1/predictions/run-all             — run inference for all schools
-  GET  /api/v1/predictions/                    — latest prediction per school
-  GET  /api/v1/predictions/national-summary    — KPI counts for Overview page
-  GET  /api/v1/predictions/by-province         — per-province risk breakdown
-  GET  /api/v1/predictions/{school_code}/shap  — SHAP values for one school
-  GET  /api/v1/predictions/{school_code}/latest — latest prediction for one school
-"""
+Province prediction endpoints — powers every dashboard page.
 
+GET  /api/v1/predictions/national-summary    → Overview KPIs
+GET  /api/v1/predictions/                    → At-Risk Provinces table
+GET  /api/v1/predictions/by-province         → province list with risk scores
+GET  /api/v1/predictions/{province}/shap     → SHAP for Model Insights
+GET  /api/v1/predictions/{province}/trend    → risk trend for Teacher Trends
+POST /api/v1/predictions/run/{province}      → run inference for one province
+POST /api/v1/predictions/run-all             → run inference for all provinces
+"""
 import json
 from typing import Optional, List
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
-from app.models.db_models import School, TeacherRecord, RiskPrediction, MLModel
+from app.models.db_models import ProvinceData, ProvincePrediction, MLModel
 from app.schemas.schemas import (
-    PredictionCreate, PredictionOut,
-    RiskSummaryItem, NationalSummaryOut, ProvinceSummaryItem,
+    PredictionOut, NationalSummaryOut, ProvinceSummaryItem, SHAPOut,
 )
 from app.core.security import require_role
-from app.services.ml_service import ml_service
+from app.services.ml_service import ml_service, build_feature_vector
 
 router = APIRouter(prefix="/api/v1/predictions", tags=["Predictions"])
 
+PROVINCES = [
+    "Central","Copperbelt","Eastern","Luapula","Lusaka",
+    "Muchinga","North-Western","Northern","Southern","Western",
+]
+
 
 def _get_active_model(db: Session) -> MLModel:
-    model = db.query(MLModel).filter(MLModel.is_active == 1).first()
-    if not model:
-        raise HTTPException(404, detail="No active ML model found. Seed ml_models table first.")
-    return model
+    m = db.query(MLModel).filter(MLModel.is_active == 1).first()
+    if not m:
+        raise HTTPException(404, "No active model found. Seed ml_models table first.")
+    return m
 
 
-def _latest_per_school(db: Session):
-    """Subquery: latest predicted_at per school_code."""
-    return (
-        db.query(
-            RiskPrediction.school_code,
-            func.max(RiskPrediction.predicted_at).label("max_date"),
-        )
-        .group_by(RiskPrediction.school_code)
-        .subquery()
-    )
+def _latest_prediction_year(db: Session) -> int:
+    """Return the most recent year that has predictions."""
+    result = db.query(func.max(ProvincePrediction.year)).scalar()
+    return result or 2025
 
 
-# ── Run inference ─────────────────────────────────────────────────────────────
+# ── Run inference ─────────────────────────────────────────────
 
 @router.post(
-    "/run/{school_code}",
+    "/run/{province}",
     response_model=PredictionOut,
     status_code=201,
-    summary="Run ML inference for a single school",
+    summary="Run ML inference for one province",
     dependencies=[Depends(require_role("data_admin", "district_officer"))],
 )
-def run_prediction(school_code: str, db: Session = Depends(get_db)):
-    school = db.query(School).filter(School.school_code == school_code).first()
-    if not school:
-        raise HTTPException(404, detail=f"School '{school_code}' not found")
-
-    # Get latest teacher record for this school
+def run_prediction(province: str, year: int = Query(2025), db: Session = Depends(get_db)):
+    # Fetch current year record
     record = (
-        db.query(TeacherRecord)
-        .filter(TeacherRecord.school_code == school_code)
-        .order_by(TeacherRecord.year.desc())
+        db.query(ProvinceData)
+        .filter(ProvinceData.province == province, ProvinceData.year == year)
         .first()
     )
     if not record:
-        raise HTTPException(422, detail=f"No teacher records found for school '{school_code}'")
+        raise HTTPException(404, f"No data for {province} year {year}")
 
-    active_model = _get_active_model(db)
-
-    features = {
-        "teacher_count":   record.teacher_count,
-        "qualified_count": record.qualified_count,
-        "ptr":             record.ptr,
-        "enrolment":       record.enrolment,
-        "attrition_est":   record.attrition_est,
-        "is_rural":        school.is_rural,
-    }
-
-    result = ml_service.predict(features)
-
-    prediction = RiskPrediction(
-        school_code    = school_code,
-        model_version  = active_model.model_version,
-        risk_score     = result["risk_score"],
-        risk_label     = result["risk_label"],
-        shap_json      = result["shap_json"],
-        confidence_pct = result["confidence_pct"],
+    # Fetch prior year (for growth rates)
+    prior_years = (
+        db.query(ProvinceData)
+        .filter(ProvinceData.province == province, ProvinceData.year < year)
+        .order_by(ProvinceData.year.desc())
+        .limit(2)
+        .all()
     )
-    db.add(prediction)
-    db.commit()
-    db.refresh(prediction)
-    return prediction
+    prior         = prior_years[0].__dict__ if len(prior_years) > 0 else None
+    two_years_ago = prior_years[1].__dict__ if len(prior_years) > 1 else None
+
+    features = build_feature_vector(record.__dict__, prior, two_years_ago)
+    result   = ml_service.predict(features)
+    model    = _get_active_model(db)
+
+    # Compute attrition proxy
+    tc_prev  = prior.get("teacher_count_primary", 1) if prior else 1
+    tc_curr  = record.teacher_count_primary or 1
+    net_loss = max(0, tc_prev - tc_curr)
+    atr_rate = round(net_loss / tc_prev, 4)
+
+    pred = ProvincePrediction(
+        province             = province,
+        year                 = year,
+        model_version        = model.model_version,
+        risk_score           = result["risk_score"],
+        risk_label           = result["risk_label"],
+        confidence_pct       = result["confidence_pct"],
+        ptr_primary_calc     = features.get("ptr_primary_calc"),
+        teacher_growth_rate  = features.get("teacher_growth_rate"),
+        recruitment_gap      = features.get("recruitment_gap"),
+        rural_school_pct     = features.get("rural_school_pct"),
+        attrition_proxy_rate = atr_rate,
+        shap_json            = result["shap_json"],
+    )
+    # Upsert — update if already exists
+    existing = (
+        db.query(ProvincePrediction)
+        .filter(
+            ProvincePrediction.province      == province,
+            ProvincePrediction.year          == year,
+            ProvincePrediction.model_version == model.model_version,
+        )
+        .first()
+    )
+    if existing:
+        for k, v in pred.__dict__.items():
+            if not k.startswith("_"):
+                setattr(existing, k, v)
+        db.commit(); db.refresh(existing)
+        return existing
+
+    db.add(pred); db.commit(); db.refresh(pred)
+    return pred
 
 
 @router.post(
     "/run-all",
-    summary="Run inference for every school with teacher records",
+    summary="Run inference for all provinces",
     dependencies=[Depends(require_role("data_admin"))],
 )
-def run_all_predictions(db: Session = Depends(get_db)):
-    active_model = _get_active_model(db)
-    schools      = db.query(School).all()
+def run_all(year: int = Query(2025), db: Session = Depends(get_db)):
     inserted = skipped = 0
     errors   = []
-
-    for school in schools:
-        record = (
-            db.query(TeacherRecord)
-            .filter(TeacherRecord.school_code == school.school_code)
-            .order_by(TeacherRecord.year.desc())
-            .first()
-        )
-        if not record:
-            skipped += 1
-            continue
+    for province in PROVINCES:
         try:
-            features = {
-                "teacher_count":   record.teacher_count,
-                "qualified_count": record.qualified_count,
-                "ptr":             record.ptr,
-                "enrolment":       record.enrolment,
-                "attrition_est":   record.attrition_est,
-                "is_rural":        school.is_rural,
-            }
-            result     = ml_service.predict(features)
-            prediction = RiskPrediction(
-                school_code    = school.school_code,
-                model_version  = active_model.model_version,
-                risk_score     = result["risk_score"],
-                risk_label     = result["risk_label"],
-                shap_json      = result["shap_json"],
-                confidence_pct = result["confidence_pct"],
+            run_prediction.__wrapped__ if hasattr(run_prediction, "__wrapped__") else None
+            # Call directly to reuse logic
+            record = (
+                db.query(ProvinceData)
+                .filter(ProvinceData.province == province, ProvinceData.year == year)
+                .first()
             )
-            db.add(prediction)
+            if not record:
+                skipped += 1
+                errors.append(f"{province}: no data for {year}")
+                continue
+
+            prior_years = (
+                db.query(ProvinceData)
+                .filter(ProvinceData.province == province, ProvinceData.year < year)
+                .order_by(ProvinceData.year.desc())
+                .limit(2).all()
+            )
+            prior         = prior_years[0].__dict__ if len(prior_years) > 0 else None
+            two_years_ago = prior_years[1].__dict__ if len(prior_years) > 1 else None
+
+            features = build_feature_vector(record.__dict__, prior, two_years_ago)
+            result   = ml_service.predict(features)
+            model    = _get_active_model(db)
+
+            tc_prev  = prior.get("teacher_count_primary", 1) if prior else 1
+            tc_curr  = record.teacher_count_primary or 1
+            atr_rate = round(max(0, tc_prev - tc_curr) / tc_prev, 4)
+
+            existing = (
+                db.query(ProvincePrediction)
+                .filter(
+                    ProvincePrediction.province      == province,
+                    ProvincePrediction.year          == year,
+                    ProvincePrediction.model_version == model.model_version,
+                ).first()
+            )
+            row_data = dict(
+                province             = province,
+                year                 = year,
+                model_version        = model.model_version,
+                risk_score           = result["risk_score"],
+                risk_label           = result["risk_label"],
+                confidence_pct       = result["confidence_pct"],
+                ptr_primary_calc     = features.get("ptr_primary_calc"),
+                teacher_growth_rate  = features.get("teacher_growth_rate"),
+                recruitment_gap      = features.get("recruitment_gap"),
+                rural_school_pct     = features.get("rural_school_pct"),
+                attrition_proxy_rate = atr_rate,
+                shap_json            = result["shap_json"],
+            )
+            if existing:
+                for k, v in row_data.items():
+                    setattr(existing, k, v)
+            else:
+                db.add(ProvincePrediction(**row_data))
             inserted += 1
         except Exception as e:
-            errors.append(f"{school.school_code}: {e}")
+            errors.append(f"{province}: {e}")
+            skipped += 1
 
     db.commit()
     return {"inserted": inserted, "skipped": skipped, "errors": errors}
 
 
-# ── Read predictions ──────────────────────────────────────────────────────────
+# ── Read predictions ──────────────────────────────────────────
 
-@router.get(
-    "",
-    response_model=List[RiskSummaryItem],
-    summary="Latest prediction per school — powers At-Risk Schools table",
-)
+@router.get("", response_model=List[ProvinceSummaryItem],
+            summary="All province predictions — At-Risk Provinces table")
 def list_predictions(
-    province:   Optional[str] = Query(None),
-    district:   Optional[str] = Query(None),
+    year:       Optional[int] = Query(None),
     risk_label: Optional[str] = Query(None, regex="^(high_risk|not_at_risk)$"),
-    is_rural:   Optional[int] = Query(None),
-    skip:  int = Query(0,   ge=0),
-    limit: int = Query(200, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    latest_sub = _latest_per_school(db)
-
-    q = (
-        db.query(RiskPrediction, School)
-        .join(School, RiskPrediction.school_code == School.school_code)
-        .join(
-            latest_sub,
-            (RiskPrediction.school_code  == latest_sub.c.school_code) &
-            (RiskPrediction.predicted_at == latest_sub.c.max_date),
-        )
-    )
-    if province:   q = q.filter(School.province   == province)
-    if district:   q = q.filter(School.district   == district)
-    if risk_label: q = q.filter(RiskPrediction.risk_label == risk_label)
-    if is_rural is not None: q = q.filter(School.is_rural == is_rural)
-
-    rows = q.order_by(RiskPrediction.risk_score.desc()).offset(skip).limit(limit).all()
-
-    return [
-        RiskSummaryItem(
-            school_code    = pred.school_code,
-            school_name    = school.name,
-            province       = school.province,
-            district       = school.district,
-            school_type    = school.school_type,
-            is_rural       = school.is_rural,
-            risk_score     = pred.risk_score,
-            risk_label     = pred.risk_label,
-            confidence_pct = pred.confidence_pct,
-            predicted_at   = pred.predicted_at,
-        )
-        for pred, school in rows
-    ]
+    
+    q  = db.query(ProvincePrediction)
+    if year:
+        q = q.filter(ProvincePrediction.year == year)
+    if risk_label:
+        q = q.filter(ProvincePrediction.risk_label == risk_label)
+    rows = q.order_by(ProvincePrediction.risk_score.desc()).all()
+    return rows
 
 
 @router.get(
     "/national-summary",
     response_model=NationalSummaryOut,
-    summary="KPI counts — powers the Overview page banner",
+    summary="KPI counts — Overview page banner",
 )
-def national_summary(db: Session = Depends(get_db)):
-    latest_sub = _latest_per_school(db)
-
-    rows = (
-        db.query(RiskPrediction)
-        .join(
-            latest_sub,
-            (RiskPrediction.school_code  == latest_sub.c.school_code) &
-            (RiskPrediction.predicted_at == latest_sub.c.max_date),
-        )
-        .all()
-    )
+def national_summary(year: Optional[int] = Query(None), db: Session = Depends(get_db)):
+    yr   = year or _latest_prediction_year(db)
+    rows = db.query(ProvincePrediction).filter(ProvincePrediction.year == yr).all()
 
     if not rows:
         return NationalSummaryOut(
-            total_schools=0, high_risk=0, not_at_risk=0,
+            total_provinces=0, high_risk=0, not_at_risk=0,
             high_risk_pct=0.0, avg_risk_score=0.0,
-            provinces_flagged=0, active_model=None,
+            prediction_year=yr, active_model=None, lopo_auc=None,
         )
 
     total     = len(rows)
     high_risk = sum(1 for r in rows if r.risk_label == "high_risk")
     avg_score = round(sum(r.risk_score for r in rows) / total, 4)
-
-    # Count distinct provinces flagged high risk
-    high_codes = {r.school_code for r in rows if r.risk_label == "high_risk"}
-    provinces_flagged = (
-        db.query(School.province)
-        .filter(School.school_code.in_(high_codes))
-        .distinct()
-        .count()
-    )
-
-    active_model = (
-        db.query(MLModel.model_version).filter(MLModel.is_active == 1).scalar()
-    )
+    active    = db.query(MLModel).filter(MLModel.is_active == 1).first()
 
     return NationalSummaryOut(
-        total_schools     = total,
-        high_risk         = high_risk,
-        not_at_risk       = total - high_risk,
-        high_risk_pct     = round(high_risk / total * 100, 1),
-        avg_risk_score    = avg_score,
-        provinces_flagged = provinces_flagged,
-        active_model      = active_model,
+        total_provinces = total,
+        high_risk       = high_risk,
+        not_at_risk     = total - high_risk,
+        high_risk_pct   = round(high_risk / total * 100, 1),
+        avg_risk_score  = avg_score,
+        prediction_year = yr,
+        active_model    = active.model_version if active else None,
+        lopo_auc        = active.lopo_auc_mean if active else None,
     )
 
 
 @router.get(
     "/by-province",
     response_model=List[ProvinceSummaryItem],
-    summary="Per-province risk breakdown — powers Overview province table",
+    summary="Province list sorted by risk — Overview province table",
 )
-def by_province(db: Session = Depends(get_db)):
-    latest_sub = _latest_per_school(db)
-
-    rows = (
-        db.query(RiskPrediction, School)
-        .join(School, RiskPrediction.school_code == School.school_code)
-        .join(
-            latest_sub,
-            (RiskPrediction.school_code  == latest_sub.c.school_code) &
-            (RiskPrediction.predicted_at == latest_sub.c.max_date),
-        )
+def by_province(year: Optional[int] = Query(None), db: Session = Depends(get_db)):
+    yr = year or _latest_prediction_year(db)
+    return (
+        db.query(ProvincePrediction)
+        .filter(ProvincePrediction.year == yr)
+        .order_by(ProvincePrediction.risk_score.desc())
         .all()
     )
 
-    province_map: dict = {}
-    for pred, school in rows:
-        p = school.province
-        if p not in province_map:
-            province_map[p] = {"total": 0, "high": 0, "not": 0, "scores": []}
-        province_map[p]["total"] += 1
-        province_map[p]["scores"].append(pred.risk_score)
-        if pred.risk_label == "high_risk":
-            province_map[p]["high"] += 1
-        else:
-            province_map[p]["not"] += 1
 
+@router.get(
+    "/{province}/shap",
+    response_model=SHAPOut,
+    summary="SHAP explanation — Model Insights page",
+)
+def province_shap(province: str, year: Optional[int] = Query(None),
+                  db: Session = Depends(get_db)):
+    yr   = year or _latest_prediction_year(db)
+    pred = (
+        db.query(ProvincePrediction)
+        .filter(ProvincePrediction.province == province,
+                ProvincePrediction.year     == yr)
+        .first()
+    )
+    if not pred:
+        raise HTTPException(404, f"No prediction for {province} year {yr}")
+    if not pred.shap_json:
+        raise HTTPException(404, f"No SHAP data stored for {province} year {yr}")
+
+    return SHAPOut(
+        province     = province,
+        year         = yr,
+        risk_score   = pred.risk_score,
+        risk_label   = pred.risk_label,
+        predicted_at = pred.predicted_at,
+        shap_values  = json.loads(pred.shap_json),
+    )
+
+
+@router.get(
+    "/{province}/trend",
+    summary="Historical risk scores for one province — Teacher Trends page",
+)
+def province_trend(province: str, db: Session = Depends(get_db)):
+    rows = (
+        db.query(ProvincePrediction)
+        .filter(ProvincePrediction.province == province)
+        .order_by(ProvincePrediction.year)
+        .all()
+    )
     return [
-        ProvinceSummaryItem(
-            province  = prov,
-            total     = data["total"],
-            high_risk = data["high"],
-            not_at_risk = data["not"],
-            avg_score = round(sum(data["scores"]) / len(data["scores"]), 4),
-        )
-        for prov, data in sorted(province_map.items())
+        {
+            "year":                 r.year,
+            "risk_score":           r.risk_score,
+            "risk_label":           r.risk_label,
+            "ptr_primary_calc":     r.ptr_primary_calc,
+            "teacher_growth_rate":  r.teacher_growth_rate,
+            "recruitment_gap":      r.recruitment_gap,
+            "attrition_proxy_rate": r.attrition_proxy_rate,
+        }
+        for r in rows
     ]
-
-
-@router.get(
-    "/{school_code}/latest",
-    response_model=PredictionOut,
-    summary="Latest prediction for a specific school",
-)
-def latest_prediction(school_code: str, db: Session = Depends(get_db)):
-    prediction = (
-        db.query(RiskPrediction)
-        .filter(RiskPrediction.school_code == school_code)
-        .order_by(RiskPrediction.predicted_at.desc())
-        .first()
-    )
-    if not prediction:
-        raise HTTPException(404, detail=f"No predictions found for school '{school_code}'")
-    return prediction
-
-
-@router.get(
-    "/{school_code}/shap",
-    summary="SHAP feature explanation for a school's latest prediction",
-)
-def school_shap(school_code: str, db: Session = Depends(get_db)):
-    prediction = (
-        db.query(RiskPrediction)
-        .filter(RiskPrediction.school_code == school_code)
-        .order_by(RiskPrediction.predicted_at.desc())
-        .first()
-    )
-    if not prediction:
-        raise HTTPException(404, detail=f"No predictions found for school '{school_code}'")
-    if not prediction.shap_json:
-        raise HTTPException(404, detail="No SHAP data stored for this prediction")
-
-    return {
-        "school_code":  school_code,
-        "risk_score":   prediction.risk_score,
-        "risk_label":   prediction.risk_label,
-        "predicted_at": prediction.predicted_at,
-        "shap_values":  json.loads(prediction.shap_json),
-    }

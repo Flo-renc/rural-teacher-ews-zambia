@@ -248,21 +248,22 @@ def inject_styles():
 
 
     .ews-card {
+        height: 150px;
+        min-height: 150px;
+        
+        width: 100%;
+        
+        box-sizing: border-box;
 
-        border-radius:
-            var(--radius);
+        padding: 1.2rem;
 
-        padding:
-            1.5rem;
+        border-radius: 12px;
 
-        box-shadow:
-            var(--shadow-sm);
+        border: 1px solid;
 
-        border:
-            1px solid var(--slate-300);
-
-        height:
-            100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }
 
 
@@ -293,7 +294,7 @@ def inject_styles():
     .ews-card-value {
 
         font-size:
-            2.4rem;
+            2rem;
 
         font-weight:
             700;
@@ -303,6 +304,9 @@ def inject_styles():
 
         color:
             var(--slate-900);
+                
+        overflow-wrap:
+            break-word;
     }
 
 

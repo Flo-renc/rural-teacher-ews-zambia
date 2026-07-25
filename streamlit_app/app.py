@@ -1,6 +1,5 @@
 import streamlit as st
 
-
 st.set_page_config(
     page_title="School Risk Analysis",
     layout="wide",
@@ -13,24 +12,33 @@ inject_styles()
 import api_client as api
 
 if not st.session_state.get("access_token"):
-    from views.login import render
-    render()
+    from views.login import render as render_login
+    render_login()
     st.stop()
 
-# Creat navigation only after login is successful
+from components.sidebar import render_sidebar
 
-overview_page = st.Page("views/overview.py", title="Overview")
-at_risk_schools_page = st.Page("views/at_risk_schools.py", title="At-Risk Schools")
-teacher_trends_page = st.Page("views/teacher_trends.py", title="Teacher Trends")
-model_insights_page = st.Page("views/model_insights.py", title="Model Insights")
-school_risk_map_page = st.Page("views/school_risk_map.py", title="School Risk Map")
+page = render_sidebar()
 
-pg = st.navigation([
-    overview_page,
-    at_risk_schools_page,
-    teacher_trends_page,
-    model_insights_page,
-    school_risk_map_page
-]) 
 
-pg.run()
+
+# Navigate and execute the specific render function immediately
+if page == "Overview":
+    from views.overview import render
+    render()
+
+elif page == "At-Risk Provinces":
+    from views.at_risk_provinces import render
+    render()
+
+elif page == "Province Trends":
+    from views.province_trends import render
+    render()
+
+elif page == "Model Insights":
+    from views.model_insights import render
+    render()
+
+elif page == "Province Risk Map":
+    from views.province_risk_map import render
+    render()

@@ -1,173 +1,221 @@
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 import pandas as pd
-import numpy as np
 
-from data import shap_feature_importance, generate_schools
-from components.cards import section_header, divider, info_box, page_footer
+from api_client import get_province_shap, get_health
+from components.cards import (
+    metric_card,
+    section_header,
+    divider,
+    info_box,
+    page_footer,
+)
 
-FONT = "Inter, sans-serif"
+PROVINCES = [
+    "Central", "Copperbelt", "Eastern", "Luapula", "Lusaka",
+    "Muchinga", "North-Western", "Northern", "Southern", "Western"
+]
 
 
 def render():
-    df_shap    = shap_feature_importance()
-    df_schools = generate_schools(120)
 
     section_header(
         "Model Insights",
-        "XGBoost model performance, SHAP feature importances, and per-school explainability"
+        "XGBoost model performance and SHAP-based explainability for province-level teacher attrition risk"
     )
 
-    # ── Model summary strip ──
+    # Model performance summary
+    health = get_health()
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Model",          "XGBoost v1.0")
-    c2.metric("ROC-AUC",        "0.87")
-    c3.metric("F1 Score",       "0.83")
-    c4.metric("Training Years", "2009–2022")
+
+    with c1:
+        metric_card(
+            "Model",
+            health.get("active_model", "xgb_v1.0"),
+            "Current version",
+            accent="low"
+        )
+
+    with c2:
+        metric_card(
+            "LOPO AUC",
+            f"{health.get('lopo_auc', 0):.4f}",
+            "Mean ± 0.1693",
+            accent="medium"
+        )
+
+    with c3:
+        metric_card(
+            "LOPO F1",
+            "0.6310",
+            "Mean ± 0.2600",
+            accent="medium"
+        )
+
+    with c4:
+        metric_card(
+            "Training Period",
+            "2009–2025",
+            "Province data",
+            accent="low"
+        )
 
     divider()
 
-    tab1, tab2, tab3 = st.tabs(["Feature Importance (SHAP)", "Confusion Matrix", "School Explainer"])
+    # Province selector
+    selected_province = st.selectbox(
+        "Select Province for SHAP Analysis",
+        PROVINCES,
+        index=4  # Default to Lusaka
+    )
 
-    # ── Tab 1: SHAP bar chart ──
-    with tab1:
-        st.markdown('<div class="section-label">Mean |SHAP| — Global Feature Impact</div>', unsafe_allow_html=True)
+    # Load SHAP data from API
+    shap_data = get_province_shap(selected_province)
 
-        df_sorted = df_shap.sort_values("mean_shap", ascending=True)
-
-        fig = go.Figure(go.Bar(
-            x=df_sorted["mean_shap"],
-            y=df_sorted["feature"],
-            orientation="h",
-            marker=dict(
-                color=df_sorted["mean_shap"],
-                colorscale=[[0, "#B7E4C7"], [1, "#1B4332"]],
-                showscale=False,
-            ),
-            text=[f"{v:.3f}" for v in df_sorted["mean_shap"]],
-            textposition="outside",
-            textfont=dict(family=FONT, size=11),
-            hovertemplate="<b>%{y}</b><br>Mean |SHAP|: %{x:.3f}<extra></extra>",
-        ))
-        fig.update_layout(
-            height=380,
-            margin=dict(t=10, b=20, l=10, r=60),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(
-                showgrid=True, gridcolor="#E2E8F0", title="Mean |SHAP value|",
-                titlefont=dict(family=FONT, size=12),
-                tickfont=dict(family=FONT, size=11),
-            ),
-            yaxis=dict(title="", tickfont=dict(family=FONT, size=12)),
+    if not shap_data:
+        st.warning(
+            "No SHAP explanation data available for this province. "
+            "Please ensure predictions have been generated."
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        return
 
-        info_box(
-            "<strong>Reading this chart:</strong> The SHAP value for a feature measures the "
-            "average magnitude of that feature's contribution to the model's risk prediction "
-            "across all schools. Higher values mean greater influence. "
-            "<strong>Pupil-Teacher Ratio</strong> is the single strongest predictor of attrition risk, "
-            "followed by the school's prior-year attrition history."
+    # Province summary
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        metric_card(
+            "Risk Score",
+            f"{shap_data['risk_score']:.3f}",
+            f"Year {shap_data['year']}",
+            accent="high" if shap_data["risk_label"] == "high_risk" else "low"
         )
 
-    # ── Tab 2: Confusion matrix ──
-    with tab2:
-        st.markdown('<div class="section-label">Confusion Matrix (Test Set)</div>', unsafe_allow_html=True)
-
-        # Illustrative values consistent with ROC-AUC 0.87
-        cm = np.array([[28, 5], [6, 21]])
-        labels = ["Low / Medium Risk", "High Risk"]
-
-        fig_cm = go.Figure(go.Heatmap(
-            z=cm,
-            x=[f"Predicted: {l}" for l in labels],
-            y=[f"Actual: {l}" for l in labels],
-            colorscale=[[0, "#F0FAF4"], [1, "#1B4332"]],
-            showscale=False,
-            text=cm,
-            texttemplate="%{text}",
-            textfont=dict(family=FONT, size=22, color="white"),
-        ))
-        fig_cm.update_layout(
-            height=300,
-            margin=dict(t=10, b=10, l=10, r=10),
-            paper_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(tickfont=dict(family=FONT, size=12)),
-            yaxis=dict(tickfont=dict(family=FONT, size=12), autorange="reversed"),
+    with c2:
+        metric_card(
+            "Risk Label",
+            shap_data["risk_label"].replace("_", " ").title(),
+            "Current classification",
+            accent="high" if shap_data["risk_label"] == "high_risk" else "low"
         )
-        st.plotly_chart(fig_cm, use_container_width=True, config={"displayModeBar": False})
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Precision (High Risk)", "0.81")
-        col2.metric("Recall (High Risk)",    "0.78")
-        col3.metric("Accuracy",              "0.82")
+    with c3:
+        metric_card(
+            "Prediction Year",
+            shap_data["year"],
+            "Latest prediction",
+            accent="low"
+        )
 
-    # ── Tab 3: School-level explainer ──
-    with tab3:
-        st.markdown('<div class="section-label">Per-School SHAP Waterfall</div>', unsafe_allow_html=True)
+    divider()
 
-        high_risk_schools = df_schools[df_schools["risk_level"] == "High"]["school_name"].tolist()
-        selected_school   = st.selectbox("Select a high-risk school to explain", high_risk_schools[:20])
+    # SHAP feature importance
+    st.markdown(
+        '<div class="section-label">SHAP Feature Contributions</div>',
+        unsafe_allow_html=True
+    )
 
-        if selected_school:
-            row = df_schools[df_schools["school_name"] == selected_school].iloc[0]
+    shap_values = shap_data["shap_values"]
 
-            st.markdown(f"""
-            <div style="display:flex; gap:1.5rem; margin:0.75rem 0 1.25rem 0; flex-wrap:wrap;">
-                <div style="font-size:0.82rem; color:#64748B;">
-                    <span style="font-weight:600; color:#0F172A;">Province:</span> {row['province']}
-                </div>
-                <div style="font-size:0.82rem; color:#64748B;">
-                    <span style="font-weight:600; color:#0F172A;">District:</span> {row['district']}
-                </div>
-                <div style="font-size:0.82rem; color:#64748B;">
-                    <span style="font-weight:600; color:#0F172A;">Risk Score:</span>
-                    <span style="color:#DC2626; font-weight:700;">{row['risk_score']:.3f}</span>
-                </div>
-                <div style="font-size:0.82rem; color:#64748B;">
-                    <span style="font-weight:600; color:#0F172A;">Attrition:</span> {row['attrition_pct']}%
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+    df_shap = pd.DataFrame({
+        "Feature": list(shap_values.keys()),
+        "SHAP Value": list(shap_values.values())
+    })
 
-            # Simulated SHAP waterfall for this school
-            np.random.seed(hash(selected_school) % 2**31)
-            features  = ["Pupil-Teacher Ratio", "Prior Year Attrition", "Remoteness Index",
-                         "Years Without Promotion", "Housing Availability", "Transfer Request Rate"]
-            shap_vals = np.random.uniform(-0.1, 0.25, size=len(features))
-            shap_vals[0] = abs(shap_vals[0]) + 0.1   # PTR always positive
+    df_shap = df_shap.sort_values("SHAP Value")
 
-            shap_df = pd.DataFrame({"Feature": features, "SHAP Value": shap_vals}).sort_values("SHAP Value")
+    fig = go.Figure(go.Bar(
+        x=df_shap["SHAP Value"],
+        y=df_shap["Feature"],
+        orientation="h",
+        marker_color=[
+            "#DC2626" if v > 0 else "#40916C"
+            for v in df_shap["SHAP Value"]
+        ],
+        text=[f"{v:+.3f}" for v in df_shap["SHAP Value"]],
+        textposition="outside",
+        hovertemplate="<b>%{y}</b><br>SHAP: %{x:+.3f}<extra></extra>"
+    ))
 
-            fig_wf = go.Figure(go.Bar(
-                x=shap_df["SHAP Value"],
-                y=shap_df["Feature"],
-                orientation="h",
-                marker_color=["#DC2626" if v > 0 else "#40916C" for v in shap_df["SHAP Value"]],
-                text=[f"{v:+.3f}" for v in shap_df["SHAP Value"]],
-                textposition="outside",
-                textfont=dict(family=FONT, size=11),
-                hovertemplate="<b>%{y}</b><br>SHAP: %{x:+.3f}<extra></extra>",
-            ))
-            fig_wf.add_vline(x=0, line_color="#CBD5E1", line_width=1)
-            fig_wf.update_layout(
-                height=300,
-                margin=dict(t=10, b=10, l=10, r=60),
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                xaxis=dict(showgrid=True, gridcolor="#E2E8F0", title="SHAP contribution to risk",
-                           tickfont=dict(family=FONT, size=11)),
-                yaxis=dict(title="", tickfont=dict(family=FONT, size=12)),
-            )
-            st.plotly_chart(fig_wf, use_container_width=True, config={"displayModeBar": False})
+    fig.add_vline(x=0, line_color="#CBD5E1", line_width=1)
 
-            info_box(
-                "Red bars push the risk score <strong>higher</strong>; green bars push it <strong>lower</strong>. "
-                "The sum of all SHAP values plus the base rate equals the final predicted risk score for this school."
-            )
+    fig.update_layout(
+        height=420,
+        margin=dict(t=20, b=20, l=0, r=60),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(
+            title="SHAP Contribution to Risk",
+            showgrid=True,
+            gridcolor="#E2E8F0"
+        ),
+        yaxis=dict(title=""),
+        showlegend=False
+    )
+
+    st.plotly_chart(
+        fig,
+        width="stretch",
+        config={"displayModeBar": False}
+    )
+
+    divider()
+
+    # SHAP interpretation table
+    st.markdown(
+        '<div class="section-label">Feature Interpretation</div>',
+        unsafe_allow_html=True
+    )
+
+    interpretation_df = df_shap.copy()
+    interpretation_df["Direction"] = interpretation_df["SHAP Value"].apply(
+        lambda x: "Increases Risk" if x > 0 else "Reduces Risk"
+    )
+
+    interpretation_df.columns = [
+        "Feature",
+        "SHAP Value",
+        "Effect on Risk"
+    ]
+
+    st.dataframe(
+        interpretation_df.sort_values("SHAP Value", ascending=False),
+        width="stretch",
+        hide_index=True,
+        height=320
+    )
+
+    divider()
+
+    # Explanation panel
+    top_feature = df_shap.sort_values("SHAP Value", ascending=False).iloc[0]
+
+    info_box(
+        f"""
+            <b>How to interpret this chart:</b>
+
+            <br>
+
+            • <b>Positive SHAP values (red)</b> increase the predicted attrition risk.
+
+            <br>
+
+            • <b>Negative SHAP values (green)</b> reduce the predicted attrition risk.
+
+            <br>
+
+            • The strongest contributor for this province is 
+            <b>{top_feature['Feature']}</b>
+            with a SHAP value of 
+            <b>{top_feature['SHAP Value']:+.3f}</b>.
+
+            <br><br>
+
+            This provides transparency by showing policymakers why the XGBoost model 
+            classified a province as high risk or not at risk.
+        """
+    )
 
     page_footer()
-    
-render()
+
+

@@ -1,176 +1,413 @@
+from scipy import stats
 import streamlit as st
-import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from data import generate_schools, get_national_summary
-from components.cards import (
-    metric_card, section_header, divider, info_box, alert_banner, page_footer, risk_badge
+from api_client import (
+    get_national_summary,
+    get_province_summary,
+    run_all_predictions,
+    get_current_user,
 )
 
+from components.cards import (
+    metric_card,
+    section_header,
+    divider,
+    info_box,
+    alert_banner,
+    page_footer,
+)
+
+
 PLOT_COLORS = {
-    "High":   "#DC2626",
-    "Medium": "#F59E0B",
-    "Low":    "#40916C",
+    "high_risk": "#DC2626",
+    "not_at_risk": "#40916C",
 }
 
 FONT = "Inter, sans-serif"
 
 
 def render():
-    df     = generate_schools(120)
-    stats  = get_national_summary(df)
+
+    # ==============================
+    # Load API data
+    # ==============================
+
+    stats = get_national_summary()
+    provinces = get_province_summary()
+
+    df = pd.DataFrame(provinces)
+
+
+    if df.empty:
+        st.warning(
+            "No prediction data available. "
+            "Please run ML inference from the admin panel."
+        )
+        return
+
 
     section_header(
         "National Overview",
-        "Real-time snapshot of teacher attrition risk across all provinces · Academic Year 2024/25"
+        "Province-level teacher attrition risk assessment based on "
+        "Ministry of Education statistics indicators"
     )
 
-    # ── Alert banner ──
-    alert_banner(
-        f"<strong>{stats['high_risk']} schools</strong> are currently flagged as High Risk across "
-        f"{stats['provinces_flagged']} provinces. Immediate policy attention is recommended for "
-        f"Western, Luapula, and Muchinga provinces."
-    )
 
-    # ── KPI row ──
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: metric_card("Total Schools Monitored", stats["total_schools"])
-    with c2: metric_card("High Risk Schools",   stats["high_risk"],   f"{stats['high_pct']}% of total", accent="high")
-    with c3: metric_card("Medium Risk Schools", stats["medium_risk"],  accent="medium")
-    with c4: metric_card("Low Risk Schools",    stats["low_risk"],     accent="low")
-    with c5: metric_card("Avg. Attrition Rate", f"{stats['avg_attrition']}%", "2021 → 2022")
+    # ==============================
+    # Admin inference button
+    # ==============================
 
-    divider()
+    user = get_current_user()
 
-    # ── Row 2: Donut + Province bar ──
-    col_left, col_right = st.columns([1, 1.6])
+    if user and user.get("role") == "data_admin":
 
-    with col_left:
-        st.markdown('<div class="section-label">Risk Distribution</div>', unsafe_allow_html=True)
-        risk_counts = df["risk_level"].value_counts().reset_index()
-        risk_counts.columns = ["Risk Level", "Schools"]
-        risk_counts["Risk Level"] = pd.Categorical(
-            risk_counts["Risk Level"], categories=["High", "Medium", "Low"], ordered=True
-        )
-        risk_counts = risk_counts.sort_values("Risk Level")
+        with st.expander("Model Controls"):
 
-        fig_donut = go.Figure(go.Pie(
-            labels=risk_counts["Risk Level"],
-            values=risk_counts["Schools"],
-            hole=0.58,
-            marker_colors=[PLOT_COLORS[r] for r in risk_counts["Risk Level"]],
-            textinfo="percent",
-            textfont=dict(size=13, family=FONT),
-            hovertemplate="<b>%{label}</b><br>%{value} schools<extra></extra>",
-        ))
-        fig_donut.update_layout(
-            margin=dict(t=10, b=10, l=10, r=10),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            showlegend=True,
-            legend=dict(font=dict(family=FONT, size=12)),
-            height=280,
-            annotations=[dict(
-                text=f"<b>{stats['total_schools']}</b><br><span style='font-size:10px'>Schools</span>",
-                x=0.5, y=0.5, font_size=18, font_family=FONT, showarrow=False
-            )],
-        )
-        st.plotly_chart(fig_donut, use_container_width=True, config={"displayModeBar": False})
-
-    with col_right:
-        st.markdown('<div class="section-label">High-Risk Schools by Province</div>', unsafe_allow_html=True)
-        high_risk = (
-            df[df["risk_level"] == "High"]
-            .groupby("province")
-            .size()
-            .reset_index(name="count")
-            .sort_values("count", ascending=True)
-        )
-        fig_bar = go.Figure(go.Bar(
-            x=high_risk["count"],
-            y=high_risk["province"],
-            orientation="h",
-            marker_color="#DC2626",
-            text=high_risk["count"],
-            textposition="outside",
-            textfont=dict(family=FONT, size=12),
-            hovertemplate="<b>%{y}</b><br>%{x} high-risk schools<extra></extra>",
-        ))
-        fig_bar.update_layout(
-            margin=dict(t=10, b=10, l=10, r=40),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(showgrid=True, gridcolor="#E2E8F0", gridwidth=1,
-                       title="", tickfont=dict(family=FONT, size=11)),
-            yaxis=dict(title="", tickfont=dict(family=FONT, size=12)),
-            height=300,
-        )
-        st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False})
-
-    divider()
-
-    # ── Row 3: Province heat table + recent flags ──
-    col_a, col_b = st.columns([1.5, 1])
-
-    with col_a:
-        st.markdown('<div class="section-label">Province Summary</div>', unsafe_allow_html=True)
-        prov_summary = (
-            df.groupby("province")
-            .agg(
-                Total=("school_id", "count"),
-                High=("risk_level", lambda x: (x == "High").sum()),
-                Medium=("risk_level", lambda x: (x == "Medium").sum()),
-                Low=("risk_level", lambda x: (x == "Low").sum()),
-                Avg_Attrition=("attrition_pct", "mean"),
+            st.write(
+                "Trigger the latest XGBoost inference for all provinces."
             )
-            .reset_index()
-            .rename(columns={"province": "Province", "Avg_Attrition": "Avg Attrition (%)"})
-            .sort_values("High", ascending=False)
+
+            if st.button(
+                "Run National Risk Assessment",
+                type="primary",
+                key="overview_run_national_risk"
+            ):
+
+                result = run_all_predictions()
+
+                if result:
+                    st.success(
+                        f"Completed predictions for "
+                        f"{result.get('inserted',0)} provinces."
+                    )
+                    st.rerun()
+
+
+
+    # ==============================
+    # Alert banner
+    # ==============================
+
+    high_count = stats.get("high_risk", 0)
+    not_at_risk_count = stats.get("not_at_risk", 0)
+    total = stats.get("total_provinces", 0)
+
+    high_risk_pct = (
+        round((high_count / total) * 100, 1)
+        if total > 0 else 0
+   )
+
+    not_at_risk_pct = (
+        round((not_at_risk_count / total) * 100, 1)
+        if total > 0 else 0
+    )
+
+    alert_banner(
+        f"""
+        <strong>{high_count} provinces</strong> are currently classified "
+        "as High Risk out of {total} assessed provinces.
+        Priority intervention is recommended for provinces with elevated "
+        "teacher attrition probability.
+        """
+    )
+
+
+   # ==============================
+   # KPI cards
+   # ==============================
+
+
+
+
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+
+    with c1:
+        metric_card(
+        "Provinces Analysed",
+        total,
+        f"Year {stats.get('prediction_year','')}",
+        accent="low"
+    )
+
+
+    with c2:
+        metric_card(
+        "High Risk Provinces",
+        high_count,
+        f"{high_risk_pct}% of total",
+        accent="high"
+    )
+
+
+    with c3:
+        metric_card(
+        "Stable Provinces",
+        not_at_risk_count,
+        f"{not_at_risk_pct}% of total",
+        accent="low"
+    )
+
+
+    with c4:
+        metric_card(
+        "Average Risk Score",
+        round(stats.get("avg_risk_score", 0), 2),
+        "XGBoost probability",
+        accent="medium"
+    )
+
+
+    with c5:
+        metric_card(
+        "Active Model",
+        stats.get("active_model", "N/A"),
+        "Current version",
+        accent="low"
+    )
+
+
+
+    # ==============================
+    # Risk distribution chart
+    # ==============================
+
+
+    left,right = st.columns([1,1.5])
+
+
+    with left:
+
+        st.markdown(
+            '<div class="section-label">Risk Distribution</div>',
+            unsafe_allow_html=True
         )
-        prov_summary["Avg Attrition (%)"] = prov_summary["Avg Attrition (%)"].round(1)
-        st.dataframe(
-            prov_summary,
-            use_container_width=True,
-            hide_index=True,
+
+
+        counts = (
+            df["risk_label"]
+            .value_counts()
+            .reset_index()
+        )
+
+        counts.columns=[
+            "Risk",
+            "Count"
+        ]
+
+
+        fig = go.Figure(
+            go.Pie(
+                labels=counts["Risk"],
+                values=counts["Count"],
+                hole=0.6,
+                marker_colors=[
+                    PLOT_COLORS.get(x,"#64748B")
+                    for x in counts["Risk"]
+                ],
+                textinfo="percent"
+            )
+        )
+
+
+        fig.update_layout(
             height=300,
-            column_config={
-                "High":   st.column_config.NumberColumn("High Risk", help="Schools at high risk"),
-                "Medium": st.column_config.NumberColumn("Medium Risk"),
-                "Low":    st.column_config.NumberColumn("Low Risk"),
+            showlegend=True,
+            margin=dict(
+                t=10,
+                b=10,
+                l=10,
+                r=10
+            ),
+            paper_bgcolor="rgba(0,0,0,0)"
+        )
+
+
+        st.plotly_chart(
+            fig,
+            width="stretch",
+            config={
+                "displayModeBar":False
             }
         )
 
-    with col_b:
-        st.markdown('<div class="section-label">Recently Flagged Schools</div>', unsafe_allow_html=True)
-        recent_flags = (
-            df[df["risk_level"] == "High"]
-            .sort_values("risk_score", ascending=False)
-            .head(6)[["school_name", "district", "risk_score"]]
+
+
+    with right:
+
+        st.markdown(
+            '<div class="section-label">Province Risk Ranking</div>',
+            unsafe_allow_html=True
         )
-        for _, row in recent_flags.iterrows():
-            st.markdown(f"""
-            <div style="padding:0.65rem 0.9rem; margin-bottom:0.5rem; background:#fff;
-                        border:1px solid #E2E8F0; border-left:3px solid #DC2626;
-                        border-radius:6px; font-size:0.82rem;">
-                <div style="font-weight:600; color:#0F172A; margin-bottom:0.15rem;">
-                    {row['school_name']}
-                </div>
-                <div style="color:#64748B; display:flex; justify-content:space-between;">
-                    <span>{row['district']}</span>
-                    <span style="font-weight:600; color:#DC2626;">Score: {row['risk_score']:.2f}</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+
+
+        ranking = (
+            df.sort_values(
+                "risk_score",
+                ascending=True
+            )
+        )
+
+
+        fig = go.Figure(
+            go.Bar(
+                x=ranking["risk_score"],
+                y=ranking["province"],
+                orientation="h",
+                marker_color="#DC2626",
+            )
+        )
+
+
+        fig.update_layout(
+            height=320,
+            xaxis_title="Risk Score",
+            yaxis_title="",
+            paper_bgcolor="rgba(0,0,0,0)"
+        )
+
+
+        st.plotly_chart(
+            fig,
+            width="stretch",
+            config={
+                "displayModeBar":False
+            }
+        )
+
+
 
     divider()
 
-    info_box(
-        "<strong>About the model:</strong> Risk scores are generated by an XGBoost classifier "
-        "trained on MoE Education Statistics Bulletin data (2009–2022). A school is classified "
-        "as High Risk when its predicted probability of a &gt;15% teacher headcount decline "
-        "exceeds 0.65. SHAP values are available on the Model Insights page."
+
+
+    # ==============================
+    # Province ranking table
+    # FR2
+    # ==============================
+
+
+    st.markdown(
+        '<div class="section-label">Province Risk Assessment</div>',
+        unsafe_allow_html=True
     )
 
+
+    table = df[
+        [
+            "province",
+            "risk_score",
+            "risk_label",
+            "confidence_pct",
+            "ptr_primary_calc",
+            "teacher_growth_rate",
+            "attrition_proxy_rate"
+        ]
+    ].copy()
+
+
+    table = table.sort_values(
+        "risk_score",
+        ascending=False
+    )
+
+
+    table.columns=[
+        "Province",
+        "Risk Score",
+        "Risk Label",
+        "Confidence %",
+        "PTR",
+        "Teacher Growth",
+        "Attrition Proxy"
+    ]
+
+
+    st.dataframe(
+        table,
+        use_container_width=True,
+        hide_index=True,
+        height=350
+    )
+
+
+
+    divider()
+
+
+
+    # ==============================
+    # Highest risk provinces
+    # ==============================
+
+
+    st.markdown(
+        '<div class="section-label">Highest Risk Provinces</div>',
+        unsafe_allow_html=True
+    )
+
+
+    highest = (
+        df.sort_values(
+            "risk_score",
+            ascending=False
+        )
+        .head(5)
+    )
+
+
+    for _,row in highest.iterrows():
+
+        st.markdown(
+            f"""
+            <div style="
+            padding:0.7rem;
+            margin-bottom:0.5rem;
+            background:#fff;
+            border-left:4px solid #DC2626;
+            border-radius:6px;
+            border:1px solid #E2E8F0;
+            ">
+
+            <strong>{row['province']}</strong>
+
+            <br>
+
+            Risk Score:
+            <span style="color:#DC2626;font-weight:bold">
+            {row['risk_score']:.2f}
+            </span>
+
+            <br>
+
+            Confidence:
+            {row['confidence_pct']}%
+
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+
+
+    divider()
+
+
+
+    info_box(
+        """
+        <strong>About the model:</strong>
+        Risk scores are generated using an XGBoost classifier trained on
+        Ministry of Education statistics data.
+        SHAP explanations are available on the Model Insights page.
+        """
+    )
+
+
     page_footer()
-render()
+
+
+

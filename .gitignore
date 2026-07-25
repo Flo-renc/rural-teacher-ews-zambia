@@ -9,10 +9,10 @@ __pycache__/
 *.pyd
 .Python
 *.egg-info/
-dist/
-build/
-*.egg
 .eggs/
+build/
+dist/
+*.egg
 
 # ── Virtual environments ──────────────────────────────────────
 venv/
@@ -21,13 +21,11 @@ env/
 ENV/
 
 # ── ML artefacts (large binaries — store in cloud, not Git) ───
-models/*.pkl
-models/*.joblib
-models/*.json
+
 mlruns/
 
 # ── Data (raw CSVs and processed outputs) ─────────────────────
-data/raw/*.csv
+
 data/processed/*.csv
 data/processed/*.parquet
 outputs/
@@ -37,7 +35,7 @@ outputs/
 *.ipynb_checkpoints
 
 # ── SQLite dev database ───────────────────────────────────────
-*.db
+
 *.sqlite3
 
 # ── IDE ───────────────────────────────────────────────────────
@@ -58,3 +56,26 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+.streamlit/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+
+# Large ML artifacts (optional)
+# Keep this commented if xgb_v1.0.joblib is needed for deployment
+# app/ml_models/*.joblib

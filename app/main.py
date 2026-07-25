@@ -3,14 +3,22 @@ Teacher Attrition Early Warning System — FastAPI Backend
 Authors: Florence Kabeya| African Leadership University
 """
 
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
  
-from app.routers import predictions, schools, data_upload, health, auth
 from app.database.connection import create_tables
+from app.routers import (
+    predictions,
+    data_upload,
+    health,
+    auth,
+)
+
  
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,11 +60,10 @@ app.add_middleware(
 )
  
 # Routers
-app.include_router(health.router, tags=["Health"])
-app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
-app.include_router(predictions.router, prefix="/api/v1", tags=["Predictions"])
-app.include_router(schools.router, prefix="/api/v1", tags=["Schools"])
-app.include_router(data_upload.router, prefix="/api/v1", tags=["Data Upload"])
+app.include_router(health.router)
+app.include_router(auth.router)
+app.include_router(predictions.router)
+app.include_router(data_upload.router)
  
  
 @app.get("/", include_in_schema=False)
