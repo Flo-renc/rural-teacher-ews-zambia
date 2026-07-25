@@ -1,8 +1,14 @@
 """
-Database connection — SQLite via SQLAlchemy.
+Database connection configuration.
 
-Prototype database for the Teacher Attrition Early Warning System.
-Production migration to PostgreSQL/MySQL can be done later.
+This module configures the SQLAlchemy engine and session factory
+for the SQLite database used by the Teacher Attrition Early
+Warning System prototype.
+
+SQLite was selected for this prototype because it is lightweight,
+self-contained, and simplifies deployment. The configuration can
+be replaced with PostgreSQL or MySQL in future production
+implementations without affecting the application's data models.
 """
 
 import logging
@@ -13,6 +19,7 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 logger = logging.getLogger(__name__)
 
+# Database Configuration
 
 # SQLite database file stored in project root
 DATABASE_URL = "sqlite:///./teacher_ews.db"
@@ -32,13 +39,24 @@ SessionLocal = sessionmaker(
     bind=engine
 )
 
+# Base Model
 
 class Base(DeclarativeBase):
     pass
 
+# Database Dependencies
 
 def get_db():
 
+    """
+    Provide a database session for FastAPI dependencies.
+
+    Yields:
+        Session: Active SQLAlchemy database session.
+
+    The session is automatically closed after the request
+    has completed.
+    """    
     db = SessionLocal()
 
     try:
@@ -49,6 +67,13 @@ def get_db():
 
 
 def create_tables():
+
+    """
+    Create all database tables defined by the ORM models.
+
+    This function is typically called during application
+    startup to ensure that all required tables exist.
+    """
 
     # Import models so SQLAlchemy knows the tables
     from app.models import db_models  # noqa

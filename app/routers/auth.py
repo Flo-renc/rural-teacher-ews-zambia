@@ -1,6 +1,20 @@
+"""
+Authentication API endpoints.
+
+This module provides endpoints for:
+
+- User registration.
+- User authentication using JWT.
+- Retrieving the currently authenticated user.
+
+These endpoints support role-based access control for the
+Teacher Attrition Early Warning System.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+
 from app.database.connection import get_db
 from app.models.db_models import User
 from app.schemas.schemas import UserCreate, UserOut, TokenOut
@@ -9,6 +23,7 @@ from app.core.security import hash_password, verify_password, create_access_toke
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 ALLOWED_ROLES = {"district_officer", "data_admin", "viewer"}
 
+# Authentication Endpoints
 
 @router.post("/register", response_model=UserOut, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
