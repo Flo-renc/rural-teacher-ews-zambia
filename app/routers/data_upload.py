@@ -51,6 +51,262 @@ def _float(value):
     dependencies=[Depends(require_role("data_admin"))],
 )
 async def upload_bulletin_csv(
+    file: UploadFile = File(
+        ...,
+        description="CSV file from MoE Education Statistics Bulletin"
+    ),
+    db: Session = Depends(get_db),
+):
+
+    # ---------------------------------------------------------
+    # Validate file type
+    # ---------------------------------------------------------
+
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only CSV files are accepted"
+        )
+
+
+    # ---------------------------------------------------------
+    # Read CSV
+    # ---------------------------------------------------------
+
+    content = await file.read()
+
+    try:
+        text = content.decode("utf-8-sig")
+
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+
+    reader = csv.DictReader(
+        io.StringIO(text)
+    )
+
+
+    if not reader.fieldnames:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV file has no header row"
+        )
+
+
+    # ---------------------------------------------------------
+    # Normalize column names
+    # ---------------------------------------------------------
+
+    normalized_columns = {
+        col.strip().lower(): col
+        for col in reader.fieldnames
+    }
+
+
+    # Required columns
+
+    missing = REQUIRED_COLUMNS - set(normalized_columns.keys())
+
+
+    if missing:
+
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "CSV missing required columns",
+                "missing_columns": sorted(list(missing)),
+                "received_columns": list(normalized_columns.keys())
+            }
+        )
+
+
+    # ---------------------------------------------------------
+    # Upload counters
+    # ---------------------------------------------------------
+
+    processed = 0
+    inserted = 0
+    updated = 0
+    skipped = 0
+    errors = []
+
+
+    # ---------------------------------------------------------
+    # Process rows
+    # ---------------------------------------------------------
+
+    for i, row in enumerate(reader, start=2):
+
+        processed += 1
+
+
+        try:
+
+            # convert row keys to lowercase
+
+            clean_row = {
+                key.lower().strip(): value
+                for key, value in row.items()
+            }
+
+
+            province = clean_row["province"].strip()
+
+            year = int(
+                clean_row["year"]
+            )
+
+
+            teacher_count = _int(
+                clean_row["teacher_count_primary"]
+            )
+
+
+            student_count = _int(
+                clean_row["student_enrolment_primary"]
+            )
+
+
+            primary_schools = _int(
+                clean_row["primary_schools"]
+            )
+
+
+            rural_schools = _int(
+                clean_row["rural_schools"]
+            )
+
+
+            urban_schools = _int(
+                clean_row["urban_schools"]
+            )
+
+
+            # -------------------------------------------------
+            # Check existing record
+            # -------------------------------------------------
+
+            existing = (
+                db.query(ProvinceData)
+                .filter(
+                    ProvinceData.province == province,
+                    ProvinceData.year == year
+                )
+                .first()
+            )
+
+
+            if existing:
+
+                # update existing bulletin record
+
+                existing.teacher_count_primary = teacher_count
+                existing.student_enrolment_primary = student_count
+                existing.primary_schools = primary_schools
+                existing.rural_schools = rural_schools
+                existing.urban_schools = urban_schools
+
+
+                updated += 1
+
+
+            else:
+
+
+                record = ProvinceData(
+
+                    province=province,
+
+                    year=year,
+
+                    teacher_count_primary=teacher_count,
+
+                    student_enrolment_primary=student_count,
+
+                    primary_schools=primary_schools,
+
+                    rural_schools=rural_schools,
+
+                    urban_schools=urban_schools
+
+                )
+
+
+                db.add(record)
+
+                inserted += 1
+
+
+
+        except Exception as e:
+
+
+            errors.append(
+                f"Row {i}: {str(e)}"
+            )
+
+
+            skipped += 1
+
+            continue
+
+
+
+    # ---------------------------------------------------------
+    # Save database changes
+    # ---------------------------------------------------------
+
+    try:
+
+        db.commit()
+
+
+    except Exception as e:
+
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database commit failed: {str(e)}"
+        )
+
+
+
+    logger.info(
+        f"""
+        Bulletin upload complete:
+        processed={processed}
+        inserted={inserted}
+        updated={updated}
+        skipped={skipped}
+        """
+    )
+
+
+
+    return UploadResultOut(
+
+        rows_processed=processed,
+
+        rows_inserted=inserted,
+
+        rows_updated=updated,
+
+        rows_skipped=skipped,
+
+        errors=errors[:50]
+
+    )
+
+
+"""@router.post(
+    "/bulletin-csv",
+    response_model=UploadResultOut,
+    summary="Bulk upload MoE Bulletin CSV data",
+    dependencies=[Depends(require_role("data_admin"))],
+)
+async def upload_bulletin_csv(
     file: UploadFile = File(..., description="CSV file from MoE Education Statistics Bulletin"),
     db:   Session    = Depends(get_db),
 ):
@@ -75,7 +331,7 @@ async def upload_bulletin_csv(
 
     processed = 0
     inserted = 0
-    inserted = 0
+    skipped = 0
     errors = []
 
     for i, row in enumerate(reader, start=2):  # start=2 because row 1 is header
@@ -100,6 +356,7 @@ async def upload_bulletin_csv(
                 existing.primary_schools         = _int(row.get("primary_schools"))
                 existing.rural_schools           = _int(row.get("rural_schools"))
                 existing.urban_schools           = _int(row.get("urban_schools"))
+                existing.ptr_primary = _float(row.get("ptr_primary"))
 
                 skipped += 1
             else:
@@ -107,6 +364,7 @@ async def upload_bulletin_csv(
                     province                     = province,
                     year                         = year,
                     teacher_count_primary        = _int(row.get("teacher_count_primary")),
+                    ptr_primary                  = _float(row.get("ptr_primary")),
                     student_enrolment_primary    = _int(row.get("student_enrolment_primary")),
                     primary_schools              = _int(row.get("primary_schools")),
                     rural_schools                = _int(row.get("rural_schools")),
@@ -115,7 +373,6 @@ async def upload_bulletin_csv(
                 db.add(record)
                 inserted += 1
         except Exception as e:
-            db.rollback()
             errors.append(f"Row {i}: {str(e)}")
             continue
 
@@ -131,3 +388,4 @@ async def upload_bulletin_csv(
         rows_skipped=skipped,
         errors=errors[:50],
     )
+"""

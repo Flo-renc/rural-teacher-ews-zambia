@@ -1,7 +1,8 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="School Risk Analysis",
+    page_title="Teacher Early Warning System" \
+    "",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -42,3 +43,10 @@ elif page == "Model Insights":
 elif page == "Province Risk Map":
     from views.province_risk_map import render
     render()
+
+elif page == "Administration":
+    from views.administration import render
+    render()
+elif page == "Privacy & Terms":
+    from views.privacy_terms import render
+    render() 

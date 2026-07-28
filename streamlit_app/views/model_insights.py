@@ -192,27 +192,21 @@ def render():
 
     info_box(
         f"""
-            <b>How to interpret this chart:</b>
+        <strong>How to interpret this chart</strong><br><br>
 
-            <br>
+        &#8226; <strong>Positive SHAP values (red)</strong> increase the predicted attrition risk.<br>
 
-            • <b>Positive SHAP values (red)</b> increase the predicted attrition risk.
+        &#8226; <strong>Negative SHAP values (green)</strong> reduce the predicted attrition risk.<br><br>
 
-            <br>
+        The strongest contributor for this province is
+        <strong>{top_feature['Feature']}</strong>
+        with a SHAP value of
+        <strong>{top_feature['SHAP Value']:+.3f}</strong>.<br><br>
 
-            • <b>Negative SHAP values (green)</b> reduce the predicted attrition risk.
-
-            <br>
-
-            • The strongest contributor for this province is 
-            <b>{top_feature['Feature']}</b>
-            with a SHAP value of 
-            <b>{top_feature['SHAP Value']:+.3f}</b>.
-
-            <br><br>
-
-            This provides transparency by showing policymakers why the XGBoost model 
-            classified a province as high risk or not at risk.
+        SHAP values explain <em>why</em> the model produced its prediction.
+        Features with larger positive values push the province toward
+        <strong>High Risk</strong>, while larger negative values push it toward
+        <strong>Not at Risk</strong>.
         """
     )
 

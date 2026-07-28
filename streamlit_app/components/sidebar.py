@@ -7,8 +7,19 @@ NAV_ITEMS = [
     "Province Trends",
     "Model Insights",
     "Province Risk Map",
+    "Privacy & Terms"
 ]
 
+def get_navigation():
+
+    nav_items = NAV_ITEMS.copy()
+
+    user = api.get_current_user()
+
+    if user and user.get("role") == "data_admin":
+        nav_items.append("Administration")
+
+    return nav_items
 
 def render_sidebar():
     
@@ -60,7 +71,7 @@ def render_sidebar():
 
         page = st.radio(
             "Choose page",
-            options=NAV_ITEMS,
+            options=get_navigation(),
             label_visibility="collapsed",
         )
 
@@ -82,17 +93,17 @@ def render_sidebar():
             <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.4rem;">
                 <span style="width:7px;height:7px;border-radius:50%;background:#4CAF50;
                              display:inline-block;flex-shrink:0;"></span>
-                <span style="font-size:0.76rem; color:#C8E6C9;">Bulletin 2022 — loaded</span>
+                <span style="font-size:0.76rem; color:#C8E6C9;">Bulletin 2009-2025 — loaded</span>
             </div>
             <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.4rem;">
                 <span style="width:7px;height:7px;border-radius:50%;background:#FFA726;
                              display:inline-block;flex-shrink:0;"></span>
-                <span style="font-size:0.76rem; color:#C8E6C9;">EMIS data — pending</span>
+                <span style="font-size:0.76rem; color:#C8E6C9;">EMIS school data — pending</span>
             </div>
             <div style="display:flex; align-items:center; gap:0.5rem;">
                 <span style="width:7px;height:7px;border-radius:50%;background:#4CAF50;
                              display:inline-block;flex-shrink:0;"></span>
-                <span style="font-size:0.76rem; color:#C8E6C9;">Model v1.0 — active</span>
+                <span style="font-size:0.76rem; color:#C8E6C9;">xgb_v1.0 — active</span>
             </div>
         </div>
         """, unsafe_allow_html=True)

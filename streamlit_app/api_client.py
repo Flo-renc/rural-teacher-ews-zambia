@@ -25,14 +25,15 @@ TIMEOUT = 10
 # AUTHENTICATION HELPERS
 # ============================================================
 
-def _headers() -> dict:
+def _headers(include_json=True) -> dict:
     """
     Attach JWT token to protected API requests.
     """
-    
-    headers = {
-        "Content-Type": "application/json"
-    }
+
+    headers = {}
+
+    if include_json:
+        headers["Content-Type"] = "application/json"
 
     token = st.session_state.get("access_token")
 
@@ -40,7 +41,6 @@ def _headers() -> dict:
         headers["Authorization"] = f"Bearer {token}"
 
     return headers
-
 
 
 # ============================================================
@@ -103,19 +103,31 @@ def _post(
 ):
     """
     POST request wrapper with error handling.
+    Supports both JSON requests and multipart file uploads.
     """
 
     try:
 
+        # For file uploads, DO NOT set Content-Type manually.
+        # requests will create multipart/form-data automatically.
+        headers = _headers(
+            include_json=(files is None)
+        )
+
         print("POST URL:", f"{API_BASE}{path}")
-        print("POST BODY:", json)
+        print("POST JSON:", json)
+        print("POST FILES:", files)
+
         response = requests.post(
             f"{API_BASE}{path}",
-            json=json,
+            json=json if files is None else None,
             files=files,
-            headers=_headers(),
+            headers=headers,
             timeout=TIMEOUT
         )
+
+        print("STATUS:", response.status_code)
+        print("RESPONSE:", response.text)
 
         response.raise_for_status()
 
@@ -340,11 +352,13 @@ def get_province_predictions(
 # ============================================================
 
 def run_prediction(
-    province: str
+    province: str,
+    year: int
 ):
 
     return _post(
-        f"/api/v1/predictions/run/{province}"
+        f"/api/v1/predictions/run/{province}",
+        json={"year": year}
     )
 
 
@@ -409,7 +423,7 @@ def upload_bulletin(
 
 
     return _post(
-        "/api/v1/data/upload",
+        "/api/v1/upload/bulletin-csv",
         files=files
     )
 

@@ -155,6 +155,7 @@ class LoginRequest(BaseModel):
 class UploadResultOut(BaseModel):
     rows_processed: int
     rows_inserted:  int
+    rows_updated:   int
     rows_skipped:   int
     errors:         List[str]
 
