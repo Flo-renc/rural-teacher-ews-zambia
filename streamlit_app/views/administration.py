@@ -221,30 +221,30 @@ def render():
             strongest = shap_df.iloc[0]
 
             info_box(
-                f"""
-                <strong>Model Explanation</strong>
+            f"""
+            <strong>Model Explanation</strong>
 
-                <br><br>
+            <br><br>
 
-                This prediction is explained using <strong>SHAP (SHapley Additive Explanations)</strong>, which identifies the factors that had the greatest influence on the model's decision.
+            This prediction is explained using <strong>SHAP (SHapley Additive Explanations)</strong>, which identifies the factors that had the greatest influence on the model's decision.
 
-                <br><br>
+            <br><br>
 
-                For <strong>{province}</strong>, the strongest contributing factor was
-                <strong>{strongest['Feature']}</strong>, with a SHAP value of
-                <strong>{strongest['SHAP Value']:+.3f}</strong>.
+            For <strong>{province}</strong>, the strongest contributing factor was
+            <strong>{strongest['Feature']}</strong>, with a SHAP value of
+            <strong>{strongest['SHAP Value']:+.3f}</strong>.
 
-                <br><br>
+            <br><br>
 
-                <strong>How to interpret SHAP values:</strong>
+            <strong>How to interpret SHAP values:</strong>
 
-                <ul style="margin-top:8px; margin-bottom:8px;">
-                    <li><strong>Positive</strong> SHAP values increase the predicted teacher attrition risk.</li>
-                    <li><strong>Negative</strong> SHAP values reduce the predicted teacher attrition risk.</li>
-                    <li>Features with larger absolute SHAP values have a greater influence on the model's prediction.</li>
-                </ul>
+            <ul style="margin-top:8px; margin-bottom:8px;">
+            <li><strong>Positive</strong> SHAP values increase the predicted teacher attrition risk.</li>
+            <li><strong>Negative</strong> SHAP values reduce the predicted teacher attrition risk.</li>
+            <li>Features with larger absolute SHAP values have a greater influence on the model's prediction.</li>
+            </ul>
 
-                These explanations improve transparency by showing why the model classified the selected province as <strong>{result['risk_label'].replace('_', ' ').title()}</strong>, allowing decision-makers to interpret the prediction with confidence rather than treating it as a black-box result.
+            These explanations improve transparency by showing why the model classified the selected province as <strong>{result['risk_label'].replace('_', ' ').title()}</strong>, allowing decision-makers to interpret the prediction with confidence rather than treating it as a black-box result.
             """
             )
 
@@ -306,23 +306,21 @@ def render():
                     )
 
                 info_box(
-                    f"""
-                    <strong>Dataset Uploaded Successfully</strong>
+                f"""
+                <h4>Next Step</h4>
 
-                    <br><br>
+                <p>
+                The uploaded dataset has been stored successfully.
+                </p>
 
-                    The new Ministry of Education dataset has been stored and is ready for analysis.
+                <p>
+                To generate updated predictions, return to the Overview page and click
+                <strong>Run National Risk Assessment</strong>.
+                </p>
 
-                    <br><br>
-
-                    You can now generate predictions by:
-                    <ul style="margin-top:8px; margin-bottom:8px;">
-                        <li>Running a <strong>Province Prediction</strong> on this page for an individual province, or</li>
-                        <li>Running a <strong>National Risk Assessment</strong> from the Overview page to update predictions for all provinces.</li>
-                    </ul>
-
-                    Newly generated predictions will use the uploaded dataset and will automatically update the associated risk scores and SHAP explanations.
-                """
+                <p>
+                Existing predictions will be replaced with predictions based on the new dataset.
+                </p>"""
                 )
 
             else:

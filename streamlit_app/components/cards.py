@@ -1,4 +1,9 @@
 import streamlit as st
+import textwrap
+
+from streamlit.string_util import clean_text
+
+from streamlit.string_util import clean_text
 
 def metric_card(label, value, sub=None, accent=None):
     """
@@ -49,13 +54,14 @@ def divider():
  
  
 def info_box(text):
+    clean_text = textwrap.dedent(text).strip()
     st.markdown(
         f"""
         <div class="ews-info-box">
-            {text}
+            {clean_text}
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
  
  
