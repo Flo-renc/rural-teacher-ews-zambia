@@ -74,9 +74,15 @@ def run_prediction(province: str, year: int = Query(2025), db: Session = Depends
     prior         = prior_years[0].__dict__ if len(prior_years) > 0 else None
     two_years_ago = prior_years[1].__dict__ if len(prior_years) > 1 else None
 
-    features = build_feature_vector(record.__dict__, prior, two_years_ago)
-    result   = ml_service.predict(features)
-    model    = _get_active_model(db)
+    try:
+
+        features = build_feature_vector(record.__dict__, prior, two_years_ago)
+        result   = ml_service.predict(features)
+        model    = _get_active_model(db)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"ML inference failed: {e}")
 
     # Compute attrition proxy
     tc_prev  = prior.get("teacher_count_primary", 1) if prior else 1

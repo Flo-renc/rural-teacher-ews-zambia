@@ -129,7 +129,7 @@ class MLService:
     def __init__(self):
         self._model     = None
         self._explainer = None
-        self._loaded    = False
+        self._loaded    = True
 
     def _try_load(self):
         if self._loaded:
