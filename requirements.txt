@@ -1,33 +1,46 @@
-attr==0.3.2
-ConfigParser==7.2.0
-cryptography==42.0.7
-docutils==0.23
+# ─────────────────────────────────────────────
+# Backend API
+# ─────────────────────────────────────────────
 fastapi==0.140.0
-filelock==3.32.0
-HTMLParser==0.0.2
-ipython==8.12.3
-ipywidgets==8.1.8
-jnius==1.1.0
-joblib==1.5.3
-joblib==1.4.0
-keyring==25.7.0
-numpy==2.5.1
-pandas==3.0.5
-passlib==1.7.4
-plotly==5.21.0
-protobuf==7.35.1
-pydantic==2.13.4
-pyOpenSSL==26.3.0
-pytest==8.2.0
-python-dotenv==1.2.2
-python_jose==3.3.0
-redis==8.0.1
-scipy==1.18.0
-shap==0.45.0
-Sphinx==9.1.0
+uvicorn[standard]
+python-multipart
+
+# Database
 SQLAlchemy==2.0.30
+
+# Configuration
+python-dotenv==1.2.2
+pydantic==2.13.4
+
+
+# ─────────────────────────────────────────────
+# Authentication
+# ─────────────────────────────────────────────
+passlib==1.7.4
+python-jose==3.3.0
+cryptography==42.0.7
+
+
+# ─────────────────────────────────────────────
+# Machine Learning
+# ─────────────────────────────────────────────
+numpy
+pandas
+scikit-learn
+xgboost
+shap==0.45.0
+joblib==1.5.3
+
+
+# ─────────────────────────────────────────────
+# Dashboard
+# ─────────────────────────────────────────────
 streamlit==1.58.0
-thread==2.0.6
-typing_extensions==4.16.0
-urllib3_secure_extra==0.1.0
-xmlrpclib==1.0.1
+plotly==5.21.0
+requests
+
+
+# ─────────────────────────────────────────────
+# Utilities
+# ─────────────────────────────────────────────
+typing_extensions
