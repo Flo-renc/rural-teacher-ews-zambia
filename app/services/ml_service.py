@@ -11,6 +11,7 @@ prior year record to compute growth rates and gaps.
 """
 import os
 import json
+from pyexpat import features
 import traceback
 import joblib
 from pathlib import Path
@@ -149,10 +150,18 @@ class MLService:
         try:
             import shap
             self._model = joblib.load(model_path)
-            self._explainer = shap.TreeExplainer(self._model)
-            print("MODEL LOADED:", type(self._model))
-            logger.info(f"XGBoost model loaded from {model_path}")
+
+            logger.info(f"Model loaded successfully from {type(self._model)}")
+
+            try:
+
+                self._explainer = shap.TreeExplainer(self._model)
+                logger.info("SHAP explainer initialized successfully.")
+            except Exception as e:
+                logger.error(f"Failed to initialize SHAP explainer: {e}")
+                self._explainer = None
         except Exception as e:
+            logger.error(f"Failed to load model: {e}")
             import traceback
             traceback.print_exc()
 
@@ -192,12 +201,31 @@ class MLService:
             shap_values = self._mock_shap(features)
         else:
             risk_score  = float(self._model.predict_proba(feature_vector)[0, 1])
-            sv          = self._explainer.shap_values(feature_vector)
-            shap_arr    = sv[0] if isinstance(sv, list) else sv[0]
-            shap_values = {
-                FEATURE_LABELS[FEATURE_COLUMNS[i]]: round(float(shap_arr[i]), 4)
-                for i in range(len(FEATURE_COLUMNS))
-            }
+            if self._explainer is not None:
+
+                sv = self._explainer.shap_values(
+                feature_vector
+               )
+
+                shap_arr = (
+                    sv[0]
+                    if isinstance(sv, list)
+                    else sv[0]
+                )
+
+                shap_values = {
+                    FEATURE_LABELS[FEATURE_COLUMNS[i]]:
+                    round(float(shap_arr[i]),4)
+                    for i in range(len(FEATURE_COLUMNS))
+                }
+
+            else:
+
+                logger.warning(
+                    "Using fallback SHAP values"
+            )
+
+            shap_values = self._mock_shap(features)
 
         risk_label     = "high_risk" if risk_score >= HIGH_RISK_THRESHOLD else "not_at_risk"
         confidence_pct = round(
