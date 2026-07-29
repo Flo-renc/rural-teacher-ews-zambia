@@ -26,8 +26,8 @@ mlruns/
 
 # ── Data (raw CSVs and processed outputs) ─────────────────────
 
-data/processed/*.csv
-data/processed/*.parquet
+# data/processed/*.csv
+# data/processed/*.parquet
 outputs/
 
 # ── Notebook checkpoints ──────────────────────────────────────

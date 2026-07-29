@@ -1,0 +1,2 @@
+province,year,risk_score,risk_label,confidence_pct,ptr_primary_calc,teacher_growth_rate,recruitment_gap,rural_school_pct,attrition_proxy_rate,shap_json
+North-Western,4800,0.8504,high_risk,85.04,120.8,-77.4967,43.5135,0.9089,0.775,"{""PTR \u2014 Primary (Gr 1-7)"": 0.6114, ""Teacher Growth Rate (YoY %)"": 0.5329, ""Enrolment Growth Rate (YoY %)"": -0.0874, ""Recruitment Gap (Enrolment\u2212Teacher Growth)"": -0.1308, ""Teachers per School"": 0.0404, ""Learners per School"": 0.0711, ""Rural School %"": -0.0122, ""PTR Trend (3-Year Rolling Avg)"": 0.156}"
