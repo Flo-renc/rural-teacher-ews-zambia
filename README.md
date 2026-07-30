@@ -8,6 +8,28 @@
 
 ---
 
+Link to Deployed version.
+Frontend : https://rural-teacher-ews-zambia-2.onrender.com/
+Backend : https://rural-teacher-ews-zambia.onrender.com
+
+### Authentication Setup (Important)
+
+If you are using the deployed version of the application, complete the following steps before attempting to log in to the Streamlit dashboard:
+
+1. Open the FastAPI Swagger documentation by navigating to:
+
+   ```
+   https://<your-backend-url>/docs
+   ```
+2. Create the required user accounts (e.g., **Data Admin**, **District Officer**, and **Viewer**) using the available authentication endpoints.
+3. Log in through the `/api/v1/auth/login` endpoint to obtain an access token.
+4. Click the **Authorize** button (🔒) located at the top-right of the Swagger UI.
+5. Paste the access token into the authorization dialog and click **Authorize**.
+6. Once authorization is complete, you can access the Streamlit dashboard and log in using the credentials of the users you created.
+
+> **Note:** The frontend relies on the authenticated backend session. If users are not created and the backend is not authorized first, login to the Streamlit dashboard may fail.
+
+
 # 1. Project Overview
 
 The Rural Teacher Attrition Early Warning System (EWS) is a machine learning-based decision support system designed to identify provinces in Zambia that are at increased risk of teacher shortages.
